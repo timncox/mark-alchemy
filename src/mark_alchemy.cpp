@@ -552,7 +552,15 @@ static void OnPoll(uint32_t now)
         }
     }
 
-    /* B2 */
+    /* B2. Stands down while B3 is held: B2+B3 held two seconds is the
+     * Settings chord, and the hold-for-ALL threshold is 600 ms, so every
+     * trip into Settings would otherwise stop (or start) every loop on the
+     * way. While B3 is down B2 is ignored and its release fires nothing. */
+    if (hw.buttons[kButtonB3].Pressed())
+    {
+        b2.down = false;
+    }
+    else
     {
         const bool pressed = hw.buttons[kButtonB2].Pressed();
         if (pressed && !b2.down) { b2.down = true; b2.fired = false; b2.t0 = now; }

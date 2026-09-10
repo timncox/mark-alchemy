@@ -96,7 +96,7 @@ one pulse on J3 is worth). Page 1 **FIRMWARE**: the SD picker
 | **B2 STOP** | tap | stop the track (`t<n>_stop`) |
 | | hold > 0.6 s | ALL start / stop (`all_btn`, fires while held) |
 | **B3 SETUP** | hold | the SETUP page |
-| B2 + B3 | hold 2 s | Settings (SDK) |
+| B2 + B3 | hold 2 s | Settings (SDK). B2 stands down while B3 is held, so the chord never fires ALL and its release stops nothing |
 
 Taps act on release so a hold never fires the tap first; the cost is a
 release-time delay on the first loop's downbeat, which the grid then
