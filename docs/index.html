@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mark for Alchemy Lab</title>
+<meta name="description" content="Operation manual for Mark on the Hermetic Modular Alchemy Lab: an RC-505-style five-track live looper whose five light rings are the five track displays, with firmware swapping from the SD card.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='34' fill='none' stroke='%2300ff00' stroke-width='14' stroke-dasharray='170 44' stroke-dashoffset='-55'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- This one constant feeds every source / issues link on the page. -->
+<script>const REPO = "https://github.com/timncox/mark-alchemy";</script>
+<style>
+/*
+  Mark for Alchemy Lab — operation manual.
+
+  The same dark world as the Smack and Belt manuals for this module: the
+  rack with the room lights off, where 102 LEDs make sense. Every ring
+  colour on this page is the firmware's own constant (src/mark_alchemy.cpp,
+  src/picker.cpp). The accent is the looper's green, the colour a track
+  turns when its loop is playing; the RC-505's red / green / yellow / white
+  are the track states and are kept for exactly that.
+*/
+:root{
+  --bg:#0b0f0c; --panel:#121810; --panel2:#182016; --panel3:#1f2a1c;
+  --ink:#e8f0e6; --dim:#8a9a88; --soft:#c2d0bf;
+  --line:rgba(232,240,230,.12); --line2:rgba(232,240,230,.06);
+  --acc:#4cf28a; --acc-soft:rgba(76,242,138,.14); --warn:#ff4a4a;
+
+  /* the RC-505's track states */
+  --t-rec:#ff0000; --t-play:#00ff00; --t-dub:#ffc000; --t-stop:#c0c0c0; --t-empty:#20202a;
+  /* PLAY page */
+  --c-track:#40c0ff;
+  /* SETUP page rings */
+  --c-quant:#40ffc0; --c-recact:#ff8040; --c-dub:#ffc040; --c-playmd:#80ffff; --c-tempo:#ffc040; --c-master:#ff40a0;
+  --c-dimled:#181818; --c-setup:#30104a;
+  /* button pairs */
+  --s-idle:#000030; --s-amber:#ff8000; --s-red:#ff0000; --s-green:#00ff00; --s-white:#ffffff; --s-grey:#606060; --s-blue:#0050ff;
+  /* the picker */
+  --k-file:#40ff60; --k-arm:#ff6000; --k-erase:#ffa000; --k-write:#2060ff; --k-verify:#20ff60; --k-done:#ffffff; --k-dfu:#c020ff;
+
+  --disp:"Bricolage Grotesque","Archivo Black",Impact,"Helvetica Neue",sans-serif;
+  --body:"Instrument Sans","Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6;overflow-x:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:repeating-linear-gradient(90deg,rgba(76,242,138,.05) 0 1px,transparent 1px 5.08px);
+  mask-image:radial-gradient(ellipse 70% 40% at 50% 0%,#000 0%,transparent 80%)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+a{color:var(--acc);text-decoration:none;border-bottom:1px solid rgba(76,242,138,.32)}
+a:hover{border-bottom-color:var(--acc)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+code,kbd{font-family:var(--mono);font-size:.82em;background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:.08em .4em;white-space:nowrap}
+b{font-weight:600}
+em{font-style:italic}
+
+nav{position:sticky;top:0;z-index:50;background:rgba(11,15,12,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:16px;height:54px;overflow-x:auto;scrollbar-width:none}
+nav .wrap::-webkit-scrollbar{display:none}
+nav .logo{font-family:var(--disp);font-weight:800;font-size:19px;letter-spacing:.02em;color:var(--ink);border:none;flex:none}
+nav .logo em{color:var(--acc);font-style:normal}
+nav a.s{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--dim);border:none;flex:none;text-transform:uppercase}
+nav a.s:hover{color:var(--ink)}
+nav a.s.git{margin-left:auto;color:var(--acc);padding-left:18px}
+
+header{padding:64px 0 44px;border-bottom:1px solid var(--line)}
+.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:44px;align-items:center}
+@media(max-width:820px){.hero{grid-template-columns:1fr}.hero .heroplate{max-width:300px;margin:0 auto}}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--acc);margin-bottom:16px}
+h1.title{font-family:var(--disp);font-weight:800;font-size:clamp(54px,9.5vw,118px);line-height:.9;letter-spacing:-.02em;text-wrap:balance}
+h1.title em{font-style:normal;display:block;font-size:.42em;font-weight:500;letter-spacing:.01em;color:var(--dim);margin-top:.35em}
+.tagline{font-family:var(--disp);font-weight:500;font-size:clamp(18px,2.6vw,25px);color:var(--soft);margin-top:22px;letter-spacing:-.005em;text-wrap:balance}
+.heroplate{position:relative}
+.heroplate svg{width:100%;height:auto;display:block;overflow:visible;filter:drop-shadow(0 18px 40px rgba(0,0,0,.55))}
+.heroplate .cap{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-align:center;margin-top:14px}
+
+.note{margin-top:30px;border:1px solid rgba(76,242,138,.35);border-left:3px solid var(--acc);
+  background:linear-gradient(90deg,rgba(76,242,138,.09),rgba(76,242,138,.02) 60%,transparent);padding:20px 24px;border-radius:2px}
+.note h3{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin-bottom:9px;font-weight:600}
+.note p{font-size:15.5px;max-width:74ch}
+.note p+p{margin-top:9px}
+.note.warn{border-color:rgba(255,74,74,.4);border-left-color:var(--warn);background:linear-gradient(90deg,rgba(255,74,74,.09),rgba(255,74,74,.02) 60%,transparent)}
+.note.warn h3{color:var(--warn)}
+
+section{padding:72px 0;border-bottom:1px solid var(--line)}
+h2.sh{font-family:var(--disp);font-weight:800;font-size:clamp(30px,4.6vw,48px);letter-spacing:-.02em;line-height:1;margin-bottom:8px;text-wrap:balance}
+.sub{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:28px}
+.lede{font-size:18px;max-width:68ch;margin-bottom:26px;color:var(--soft);text-wrap:pretty}
+p{max-width:70ch;text-wrap:pretty}
+p+p{margin-top:14px}
+h3.h{font-family:var(--disp);font-weight:800;font-size:26px;letter-spacing:-.015em;margin:40px 0 8px}
+h3.h+.sub{margin-bottom:18px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:20px 22px}
+.card h4{font-family:var(--disp);font-weight:800;font-size:21px;letter-spacing:-.01em;margin-bottom:7px}
+.card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin-bottom:10px}
+.card p{font-size:14.5px;color:var(--soft)}
+
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;margin-top:6px;font-size:14.5px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:500}
+td:first-child{font-family:var(--mono);font-size:13px;color:var(--ink);white-space:nowrap}
+tbody tr:hover{background:rgba(76,242,138,.035)}
+.sw{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:0;box-shadow:0 0 7px currentColor}
+.num{font-variant-numeric:tabular-nums}
+
+pre{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--acc);border-radius:3px;
+  padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.7;color:var(--soft)}
+pre b{color:var(--acc);font-weight:500}
+pre i{color:var(--ink);font-style:normal}
+
+.drawing{display:grid;grid-template-columns:minmax(280px,400px) 1fr;gap:38px;align-items:start}
+@media(max-width:820px){.drawing{grid-template-columns:1fr}}
+.plate{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:18px;position:relative}
+.plate svg{width:100%;height:auto;display:block;overflow:visible}
+.hole{cursor:pointer}
+.hole .hit{fill:transparent;stroke:transparent;stroke-width:1.2;transition:stroke .15s}
+.hole:hover .hit,.hole.sel .hit{stroke:var(--acc)}
+.plabel{font-family:var(--mono);font-size:2.05px;fill:var(--dim);letter-spacing:.04em;text-anchor:middle;pointer-events:none}
+.plabel.lit{fill:var(--ink)}
+.jlabel{font-family:var(--mono);font-size:1.75px;fill:var(--dim);letter-spacing:.03em;text-anchor:middle;pointer-events:none}
+.legend{font-family:var(--mono);font-size:2.2px;fill:var(--soft);letter-spacing:.12em;text-anchor:middle;pointer-events:none}
+
+.readout{position:sticky;top:78px}
+.readout .rk{font-family:var(--mono);font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--acc);margin-bottom:8px}
+.readout h3{font-family:var(--disp);font-weight:800;font-size:clamp(30px,4.4vw,44px);line-height:.95;letter-spacing:-.02em;margin-bottom:6px}
+.readout .rs{font-family:var(--mono);font-size:12px;color:var(--dim);margin-bottom:16px}
+.readout .rd{font-size:15.5px;color:var(--soft);min-height:7.5em}
+.readout .meta{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--dim);display:grid;gap:5px}
+.readout .meta b{color:var(--ink);font-weight:500}
+.hint{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:14px;line-height:1.55}
+
+.toggles{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.tg{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);background:var(--panel2);border:1px solid var(--line);border-radius:2px;padding:7px 12px;cursor:pointer;transition:.16s}
+.tg:hover{color:var(--ink);border-color:rgba(76,242,138,.4)}
+.tg[aria-pressed="true"]{color:var(--acc);border-color:var(--acc);background:var(--acc-soft)}
+.tg[data-page="1"][aria-pressed="true"]{color:#c060ff;border-color:#c060ff;background:rgba(192,96,255,.14)}
+.tgcap{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.04em}
+
+/* ---------- the five tracks, live ---------- */
+.deck{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:24px;margin-top:8px}
+.tracks{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+@media(max-width:640px){.tracks{grid-template-columns:repeat(3,1fr)}}
+.trk{background:var(--bg);border:1px solid var(--line2);border-radius:3px;padding:12px 8px 10px;text-align:center;cursor:pointer;transition:border-color .15s}
+.trk:hover{border-color:rgba(232,240,230,.3)}
+.trk[aria-pressed="true"]{border-color:var(--acc)}
+.trk svg{width:100%;max-width:110px;height:auto;display:block;margin:0 auto;overflow:visible}
+.trk .tn{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-top:8px}
+.trk .ts{font-family:var(--disp);font-weight:800;font-size:15px;letter-spacing:-.01em;margin-top:2px;min-height:1.3em}
+.deckbtns{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-top:20px}
+.db{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink);background:var(--panel2);border:1px solid var(--line);border-radius:2px;padding:10px 12px;cursor:pointer;text-align:left;transition:.16s;line-height:1.4}
+.db:hover{border-color:rgba(76,242,138,.5);background:var(--panel3)}
+.db b{display:block;color:var(--acc);font-weight:500;letter-spacing:.1em;text-transform:uppercase;font-size:10px;margin-bottom:2px}
+.decklights{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.04em}
+.decklights span{display:inline-flex;align-items:center;gap:8px}
+.decklights i{width:12px;height:12px;border-radius:50%;display:inline-block;box-shadow:0 0 10px currentColor}
+.decklog{margin-top:14px;font-size:14.5px;color:var(--soft);min-height:2.6em}
+.deckopts{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.deckopts label{display:inline-flex;gap:7px;align-items:center;cursor:pointer}
+.deckopts input{accent-color:var(--acc)}
+
+/* ---------- ring simulator ---------- */
+.sim{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:26px;display:grid;grid-template-columns:180px 1fr;gap:28px;align-items:center}
+@media(max-width:640px){.sim{grid-template-columns:1fr}}
+.sim svg{width:100%;height:auto;display:block;overflow:visible}
+input[type=range]{width:100%;accent-color:var(--acc);margin:6px 0 12px}
+.simval{font-family:var(--disp);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.simcap{font-family:var(--mono);font-size:11.5px;color:var(--dim);letter-spacing:.05em}
+.verdict{margin-top:14px;font-size:15px;min-height:3em;color:var(--soft)}
+
+.fam{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:8px}
+.fam a{display:block;background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:16px 18px;transition:.18s}
+.fam a:hover{border-color:rgba(76,242,138,.45);background:var(--panel2);transform:translateY(-1px)}
+.fam .fn{font-family:var(--disp);font-weight:800;font-size:21px;letter-spacing:-.01em;color:var(--ink);line-height:1}
+.fam .fd{font-size:13px;color:var(--dim);margin-top:6px;line-height:1.45}
+.fam .fh{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--acc);margin-top:9px}
+
+footer{padding:54px 0 70px;color:var(--dim);font-size:14px}
+footer .fl{font-family:var(--disp);font-weight:800;font-size:24px;color:var(--ink);letter-spacing:-.01em;margin-bottom:12px}
+footer a{color:var(--dim);border-bottom-color:rgba(138,154,136,.3)}
+footer a:hover{color:var(--acc)}
+footer p{max-width:70ch}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="logo" href="#top">MARK<em>·</em>ALCHEMY LAB</a>
+  <a class="s" href="#what">What</a>
+  <a class="s" href="#panel">Panel</a>
+  <a class="s" href="#play">Playing</a>
+  <a class="s" href="#tracks">Tracks</a>
+  <a class="s" href="#setup">Setup</a>
+  <a class="s" href="#clock">Clock</a>
+  <a class="s" href="#cv">CV</a>
+  <a class="s" href="#rings">Rings</a>
+  <a class="s" href="#card">Card</a>
+  <a class="s" href="#build">Build</a>
+  <a class="s" href="#install">Install</a>
+  <a class="s" href="#built">Built</a>
+  <a class="s" href="#family">Family</a>
+  <a class="s git" href="#" data-repo="">Source ↗</a>
+</div></nav>
+
+<header id="top"><div class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Custom firmware · Hermetic Modular Alchemy Lab V2 · v0.1.0</div>
+      <h1 class="title">Mark<em>for Alchemy Lab</em></h1>
+      <div class="tagline">Five loops under two buttons. The first one you record is the bar.</div>
+
+      <div class="note">
+        <h3>Built. Not yet heard.</h3>
+        <p>v0.1.0 compiles for the module and passes its native test: five tracks of
+          <b>55 seconds</b> each fit the module's SDRAM, and a two-second first loop, recorded with
+          no clock, becomes exactly one bar and plays back. <b>Nothing has been heard through it
+          yet.</b> Every claim below about how it plays is a claim about the same engine on the
+          Ableton Move, where it has been played, sessions and all.</p>
+      </div>
+    </div>
+    <div class="heroplate">
+      <svg id="heroSvg" viewBox="-4 -4 69 137" role="img" aria-label="Mark for Alchemy Lab panel: track 1 playing, track 2 overdubbing, track 3 recording, track 4 stopped, track 5 empty"></svg>
+      <div class="cap">12 HP · 6 pots · 3 buttons · 10 jacks · 102 LEDs · drawn at true scale</div>
+    </div>
+  </div>
+</div></header>
+
+<section id="what"><div class="wrap">
+  <h2 class="sh">What it does</h2>
+  <div class="sub">01 — The idea</div>
+  <p class="lede">The Boss RC-505's workflow on a Eurorack module: five independent stereo loop
+    tracks, each stepping record → play → overdub under one button, stop under the other, synced
+    to a shared bar, with undo. What you patch into it keeps passing through underneath, and each
+    of the five light rings is that track's display.</p>
+  <div class="cols">
+    <div class="card"><div class="k">The rings</div><h4>Five track displays</h4>
+      <p>An RC-505 has five columns of coloured lights. This module has five rings around five
+        pots. Each ring is its track: <span class="sw" style="color:var(--t-rec)"></span>red
+        recording, <span class="sw" style="color:var(--t-play)"></span>green playing,
+        <span class="sw" style="color:var(--t-dub)"></span>yellow overdubbing,
+        <span class="sw" style="color:var(--t-stop)"></span>white stopped, with a playhead running
+        round it.</p></div>
+    <div class="card"><div class="k">The bar</div><h4>Your first loop sets it</h4>
+      <p>With nothing on the clock jack, the first loop you record is exactly as long as you
+        played it and becomes the bar every later loop snaps to. TEMPO only tells the module how
+        many bars that was. With a clock on J3, everything snaps to that instead.</p></div>
+    <div class="card"><div class="k">Two buttons</div><h4>A track button and a stop button</h4>
+      <p>Pick a track with the TRACK pot. B1 is that track's REC/PLAY: tap through record, play
+        and overdub, hold for undo, hold longer to clear. B2 stops it; hold B2 for ALL.</p></div>
+  </div>
+  <p style="margin-top:26px">It is the same C engine as <a href="https://timncox.github.io/schwung-mark/">Mark</a>
+    for the Ableton Move, recompiled for the Alchemy Lab: six pots on two pages, three buttons,
+    six CV jacks that read independently of the pots, and 102 LEDs. Two things the Move version
+    has are not on this panel yet: sessions saved to the card, and the per-track pan, reverse,
+    one-shot and built-in track effects. The engine still has them; the panel does not reach them
+    in v0.1.0. It also brings <a href="#card">firmware swapping from the SD card</a>, so this
+    module can carry several firmwares and change between them from a settings page.</p>
+</div></section>
+
+<section id="panel"><div class="wrap">
+  <h2 class="sh">The panel</h2>
+  <div class="sub">02 — Drawn at true scale · click any control</div>
+  <p class="lede">Every hole sits where it sits on an Alchemy Lab. The coordinates come from the
+    SDK's own KiCad front-panel template, not from a photo, and the drawing is generated from
+    them. The PLAY page is five track levels and the TRACK selector; the SETUP page appears while
+    B3 is held.</p>
+
+  <div class="toggles">
+    <button class="tg" id="tgPlay" data-page="0" aria-pressed="true">Play page</button>
+    <button class="tg" id="tgSetup" data-page="1" aria-pressed="false">Setup page · hold B3</button>
+    <span class="tgcap" id="tgCap">rings as the firmware draws them</span>
+  </div>
+
+  <div class="drawing">
+    <div class="plate">
+      <svg id="panelSvg" viewBox="-4 -4 69 137" role="img" aria-label="Interactive Alchemy Lab panel diagram"></svg>
+    </div>
+    <div class="readout" id="ro">
+      <div class="rk" id="roK">Select a control</div>
+      <h3 id="roT">The panel</h3>
+      <div class="rs" id="roS">6 pots × 2 pages · 3 buttons · 10 jacks · 102 LEDs</div>
+      <div class="rd" id="roD">Hover or click anything on the drawing. Audio in and out, the
+        front USB-C and the light rings are fixed Alchemy Lab hardware; everything else is what
+        this firmware makes of them.</div>
+      <div class="meta" id="roM">
+        <div>plate <b>60.96 × 128.5 mm</b> · 12 HP</div>
+        <div>pot pitch <b>35 mm</b> across, <b>28 mm</b> down · rings <b>16 LEDs</b>, 13 in the arc</div>
+        <div>source <b>KiCad template, parsed</b></div>
+      </div>
+      <div class="hint">J1/J2 sit under the IN legend, J9/J10 under OUT. The six CV jacks between
+        them are numbered here in reading order, which the template does not state: the numbers
+        printed on your panel are the authority.</div>
+    </div>
+  </div>
+</div></section>
+
+<section id="play"><div class="wrap">
+  <h2 class="sh">Playing it</h2>
+  <div class="sub">03 — Five steps to the first two loops</div>
+  <pre><b>1</b>  Patch audio to <i>J1 / J2</i> (IN). It passes through immediately.
+<b>2</b>  Turn <i>TRACK</i> (P6) to 1. The B1 light shows track 1's state: dim, empty.
+<b>3</b>  Tap <i>B1</i>. The P1 ring turns <i>red</i>. It is recording, right now,
+   because nothing is playing yet and nothing is clocking it.
+<b>4</b>  Tap <i>B1</i> again where the bar should end. The ring turns <i>green</i>
+   and the loop plays. That length is now the bar.
+<b>5</b>  Turn <i>TRACK</i> to 2, tap <i>B1</i>. The P2 ring <i>blinks red</i> until
+   the bar line, then records for a bar and turns green on the next one.</pre>
+  <p style="margin-top:22px"><b>Tap B1 on a playing track and it overdubs</b>: the ring goes yellow
+    and everything you play is layered onto the loop until you tap again. <b>Tap B2 to stop</b> a
+    track; tap B1 to restart it on the next bar line. <b>Hold B2 for ALL</b>: every playing track
+    stops, or every stopped track starts, on the spot.</p>
+  <p><b>Hold B1 past half a second for undo.</b> The last thing you did to the loop, a first
+    recording or an overdub, comes back off; hold again and it comes back on. The B1 light turns
+    white the moment the hold has reached undo, so you know before you let go. <b>Hold two seconds
+    to clear the track.</b></p>
+  <p>Taps act when you let go, so a hold never fires the tap first. The cost is a release-time
+    delay on the first loop's downbeat, and the grid then carries that consistently; every later
+    loop lines up with it.</p>
+
+  <div class="note" style="margin-top:26px">
+    <h3>What "the bar" means here</h3>
+    <p>The engine follows one grid. A running clock on J3 wins. Otherwise the first finalized
+      loop anchors the bar. Otherwise, the tempo. So unclocked, your first loop is not quantized
+      at all: it is as long as your two taps, and the module divides it by the TEMPO pot's bar to
+      decide how many bars it was, one at 120 BPM for a two-second loop, two for four seconds.
+      Everything after that snaps to that bar, or to the fraction of it that QUANTIZE picks.</p>
+    <p>That is the RC-505 with no rhythm running, and it is why <a href="#clock">the clock jack is
+      handled the way it is</a>.</p>
+  </div>
+</div></section>
+
+<section id="tracks"><div class="wrap">
+  <h2 class="sh">The five rings, live</h2>
+  <div class="sub">04 — The engine's track state machine, on the page</div>
+  <p class="lede">This is the RC's track logic as the firmware runs it: the same states, the same
+    button cycle, the same rule that actions wait for the bar line once something is playing. Click
+    a ring to select that track, then press the buttons. Rings draw exactly as the module draws
+    them.</p>
+
+  <div class="deck">
+    <div class="tracks" id="deckTracks"></div>
+    <div class="deckbtns">
+      <button class="db" id="dbB1"><b>B1 · tap</b>record → play → overdub → play</button>
+      <button class="db" id="dbB1h"><b>B1 · hold</b>undo / redo the last take</button>
+      <button class="db" id="dbB1c"><b>B1 · hold 2 s</b>clear the track</button>
+      <button class="db" id="dbB2"><b>B2 · tap</b>stop the track</button>
+      <button class="db" id="dbB2h"><b>B2 · hold</b>ALL start / stop</button>
+    </div>
+    <div class="decklights">
+      <span><i id="lB1" style="color:#000030"></i>B1 light: the selected track</span>
+      <span><i id="lB2" style="color:#606060"></i>B2 light: free-running</span>
+      <span id="deckBar">bar: not set yet</span>
+    </div>
+    <div class="deckopts">
+      <label><input type="checkbox" id="optQuant" checked> QUANTIZE on (Bar)</label>
+      <label><input type="checkbox" id="optRecAct"> REC → Overdub</label>
+      <label><input type="checkbox" id="optSingle"> PLAY Single</label>
+    </div>
+    <div class="decklog" id="deckLog">Track 1 is empty. Tap B1 to record it; with nothing playing and no clock, recording starts at once.</div>
+  </div>
+
+  <div class="tablewrap" style="margin-top:28px"><table>
+    <thead><tr><th>Ring</th><th>Means</th></tr></thead>
+    <tbody>
+      <tr><td><span class="sw" style="color:var(--t-empty)"></span>near dark</td><td>Empty. The arc still shows the level, dimly, so a turned-down pot is not mistaken for an empty track.</td></tr>
+      <tr><td><span class="sw" style="color:var(--t-rec)"></span>red</td><td>Recording. Filling from the start of the arc while the bar counts.</td></tr>
+      <tr><td><span class="sw" style="color:var(--t-play)"></span>green</td><td>Playing, with a white pip running once around the arc per loop pass.</td></tr>
+      <tr><td><span class="sw" style="color:var(--t-dub)"></span>yellow</td><td>Overdubbing: playing and layering your input onto the loop at the same time.</td></tr>
+      <tr><td><span class="sw" style="color:var(--t-stop)"></span>white</td><td>Stopped, with a loop in it. Tap B1 to start it on the next bar line.</td></tr>
+      <tr><td>blinking</td><td>Waiting for the bar line: a record or a start that QUANTIZE is holding until the base track comes round.</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:20px">The arc's length is the LEVEL pot, so the ring is doing two jobs. The
+    catch pip the SDK normally draws is not drawn on these five: the PLAY page adopts the physical
+    pots at boot, so the pots are already where they say they are.</p>
+</div></section>
+
+<section id="setup"><div class="wrap">
+  <h2 class="sh">The second page</h2>
+  <div class="sub">05 — What B3 buys back</div>
+  <p class="lede">The RC-505's system menu is a pot page here: hold B3 and the same six pots are the
+    grid, what a recording ends in, how an overdub lands, whether tracks are sections, the tempo and
+    the master.</p>
+
+  <h3 class="h">SETUP — hold B3</h3>
+  <div class="sub">The set-once things</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Pot</th><th>Parameter</th><th>Range</th><th>Ring</th></tr></thead>
+    <tbody>
+      <tr><td>P1</td><td><b>QUANTIZE</b>, the grid a recording's length and a start snap to</td><td>Off · Bar · Beat · 8th · 16th</td><td><span class="sw" style="color:var(--c-quant)"></span>5 dots</td></tr>
+      <tr><td>P2</td><td><b>REC →</b>, what a recording drops into when you end it</td><td>Play · Overdub</td><td><span class="sw" style="color:var(--c-recact)"></span>2 dots</td></tr>
+      <tr><td>P3</td><td><b>DUB</b>, whether an overdub layers onto the loop or replaces it</td><td>Overdub · Replace</td><td><span class="sw" style="color:var(--c-dub)"></span>2 dots</td></tr>
+      <tr><td>P4</td><td><b>PLAY</b>, Single makes starting one track stop the others: song sections</td><td>Multi · Single</td><td><span class="sw" style="color:var(--c-playmd)"></span>2 dots</td></tr>
+      <tr><td>P5</td><td><b>TEMPO</b>, the bar length nothing else has set</td><td class="num">50–200 BPM</td><td><span class="sw" style="color:var(--c-tempo)"></span>level</td></tr>
+      <tr><td>P6</td><td><b>MASTER</b>, the loop mix out</td><td class="num">0–200 %</td><td><span class="sw" style="color:var(--c-master)"></span>level</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:20px"><b>Opening the page to look cannot change anything.</b> The SDK's pot
+    catch runs on the way in and on the way out: a SETUP pot only takes effect once you turn it
+    through the value it already holds, and letting go of B3 hands the pots back to the PLAY page
+    without jumping any level. The six SETUP values are saved to flash a few seconds after you
+    stop moving them and come back at the next power-up; loop audio is never saved. The PLAY page
+    always comes up honest: at boot, whatever a pot points at is what the module does.</p>
+  <p>First boot after flashing seeds the page with QUANTIZE Bar, REC → Play, Overdub, Multi,
+    120 BPM, 100%.</p>
+
+  <h3 class="h">Settings — hold B2 + B3 for two seconds</h3>
+  <div class="sub">The SDK's own settings layer; B1 steps through its pages, B2 or B3 leaves</div>
+  <div class="cols">
+    <div class="card"><div class="k">Page 1</div><h4>Brightness · dry input · presets · clock ratio</h4>
+      <p><b>P1</b> ring brightness. <b>P2</b> DRY INPUT: Through mixes what comes in on J1/J2 into
+        the output, as the RC does; Muted outputs the loops only, for a mixer that already has the
+        dry signal. <b>P3 / P4</b> preset slot and action. <b>P5</b> CLOCK RATIO: what one pulse
+        on J3 is worth, ÷2, =1 or ×2.</p></div>
+    <div class="card"><div class="k">Page 2</div><h4>Firmware</h4>
+      <p>The SD card picker: <b>P1</b> file, <b>P2</b> flash, <b>P3</b> DFU. <a href="#card">The
+        card section</a> is about it.</p></div>
+  </div>
+  <p style="margin-top:20px">B2 stands down while B3 is held, so the two seconds of the Settings
+    chord never fire ALL on the way in and letting go stops nothing.</p>
+</div></section>
+
+<section id="clock"><div class="wrap">
+  <h2 class="sh">The clock</h2>
+  <div class="sub">06 — J3, and why it is quiet until a pulse arrives</div>
+  <p class="lede">Patch a clock to J3 and every loop snaps to it: a recording ends on its bar line,
+    a start waits for its bar line, and CLOCK RATIO says whether one pulse is a half note, a
+    quarter or an eighth. Leave J3 empty and the module makes its own bar from your first loop.</p>
+  <div class="cols">
+    <div class="card"><div class="k">J3 empty</div><h4>The first loop is the bar</h4>
+      <p>No quantizing until something is playing. Your first recording is as long as your taps,
+        and TEMPO says how many bars it spanned. Later loops snap to it.</p></div>
+    <div class="card"><div class="k">J3 clocked</div><h4>The clock is the bar</h4>
+      <p>Pulses become the 24-pulse-per-quarter clock the engine already speaks. Every record
+        length rounds to the grid, every start waits for the bar line.</p></div>
+    <div class="card"><div class="k">Settings P5</div><h4>Ratio</h4>
+      <p>÷2, =1 or ×2 on what arrives, so a 16th-note clock and a quarter-note clock both make a
+        four-beat bar.</p></div>
+  </div>
+  <p style="margin-top:26px"><b>The engine hears the clock jack only after a pulse has arrived on
+    it.</b> The clock adapter this firmware shares with Smack free-runs at the TEMPO when nothing is
+    patched, which is what Smack wants; Mark does not, because a free-running clock would quantize
+    the first loop to the TEMPO pot and take the bar away from your hands. So nothing is forwarded
+    until J3 fires, and when the pulse train stops the module sends the engine a single stop and
+    goes quiet again; the engine then carries on with the bar it already has.</p>
+  <p><b>J3 is read raw in the audio callback</b>, not through the SDK's 20 Hz pot filter, which
+    would smear a pulse. It fires on the <em>magnitude</em> of the swing away from the jack's
+    calibrated zero, 1.5 V to assert and 0.5 V to release, so a pulse counts whichever way the
+    front end signs it. The same reader watches J4 and J5 for the two trigger inputs. This is the
+    part of the port that native tests cannot reach; it is unheard.</p>
+</div></section>
+
+<section id="cv"><div class="wrap">
+  <h2 class="sh">Jacks and CV</h2>
+  <div class="sub">07 — Two triggers, three CV inputs, independent of the pots</div>
+  <p class="lede">The Alchemy Lab reads pots and jacks separately and the SDK adds them in software,
+    per page and per pot. Two of the six jacks are triggers here, because a looper whose record
+    button a sequencer can press is a different instrument from one it cannot.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Jack</th><th>Drives</th><th>Page</th></tr></thead>
+    <tbody>
+      <tr><td>J3</td><td><b>CLOCK</b> — see above</td><td>—</td></tr>
+      <tr><td>J4</td><td><b>REC trigger</b> — the selected track's B1, from a gate or trigger</td><td>—</td></tr>
+      <tr><td>J5</td><td><b>STOP trigger</b> — the selected track's B2</td><td>—</td></tr>
+      <tr><td>J6</td><td><b>TRACK</b> select</td><td>PLAY P6</td></tr>
+      <tr><td>J7</td><td><b>LEVEL 1</b></td><td>PLAY P1</td></tr>
+      <tr><td>J8</td><td><b>LEVEL 2</b></td><td>PLAY P2</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:20px">A sequencer into J6 and a trigger into J4 records, plays and overdubs
+    across all five tracks with no hands on the module. The triggers are edge-detected in the
+    audio callback and acted on at the one-millisecond control poll, so the engine's parameter
+    calls never run on the audio thread.</p>
+  <p>The routing is fixed and provisional in v0.1.0; choosing it from the Settings pages is the
+    obvious next version.</p>
+</div></section>
+
+<section id="rings"><div class="wrap">
+  <h2 class="sh">Reading the rings</h2>
+  <div class="sub">08 — 96 LEDs around the pots, 6 beside the buttons</div>
+  <p class="lede">The five LEVEL rings are the track displays described above. The rest of the
+    panel says what the firmware is doing.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Where</th><th>Shows</th></tr></thead>
+    <tbody>
+      <tr><td>LEVEL rings 1–5</td><td>The track's state colour as a level arc, blinking while an action waits for the bar line, a white playhead once around per loop pass.</td></tr>
+      <tr><td>TRACK ring</td><td>Five dots, the selected track bright.</td></tr>
+      <tr><td>SETUP rings</td><td>The SDK draws every SETUP pot's value in its colour while B3 is held.</td></tr>
+      <tr><td>B1 · TRACK</td><td>The selected track's state colour: <span class="sw" style="color:#3050ff"></span>dim blue empty · <span class="sw" style="color:var(--t-rec)"></span>red · <span class="sw" style="color:var(--t-play)"></span>green · <span class="sw" style="color:var(--t-dub)"></span>yellow · <span class="sw" style="color:var(--t-stop)"></span>white stopped · blinking pending · <span class="sw" style="color:var(--s-white)"></span>white while a hold has reached undo</td></tr>
+      <tr><td>B2 · CLOCK</td><td><span class="sw" style="color:var(--s-blue)"></span>blue locked to J3 · <span class="sw" style="color:#909090"></span>grey free-running · <span class="sw" style="color:var(--s-red)"></span><b>red = the audio callback is above 80%</b></td></tr>
+      <tr><td>B3 · SETUP</td><td>A dim violet tint while the PLAY page is up; the SDK lights it in the page colour while SETUP is held.</td></tr>
+      <tr><td>P1 ring, first 2.5 s</td><td>Last session's worst CPU load, as a bar. See below.</td></tr>
+      <tr><td>All three buttons red</td><td>The engine could not allocate its five tracks. The native test proves 55 seconds a track fits the pool with room, so this should be impossible; it fails loudly rather than running silently broken.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 class="h">The boot report</h3>
+  <div class="sub">The load, shown when you can look</div>
+  <p class="lede">You cannot watch a status light with five loops running and both hands on the
+    pots, so the module measures its own worst-case load while you play and shows it on the P1 ring
+    for the first two and a half seconds of the <em>next</em> power-up.</p>
+  <div class="sim">
+    <svg id="simRing" viewBox="-13 -13 26 26" role="img" aria-label="P1 ring showing the boot CPU report"></svg>
+    <div>
+      <label for="cpu" class="simcap">Drag: last session's peak CPU load</label>
+      <input type="range" id="cpu" min="0" max="100" value="0" step="1">
+      <div class="simval" id="cpuVal">no data</div>
+      <div class="simcap" id="cpuCap">first boot after flashing</div>
+      <div class="verdict" id="cpuVerdict"></div>
+    </div>
+  </div>
+  <p style="margin-top:22px">A single dim blue LED means it has not measured anything yet. Green is
+    under 75%, amber under 90%, red means it did not fit. Five loops reading and writing from
+    external RAM is far less than Smack asks of the same silicon, so this number is expected to be
+    comfortable; it is still unmeasured.</p>
+</div></section>
+
+<section id="card"><div class="wrap">
+  <h2 class="sh">Firmware on the card</h2>
+  <div class="sub">09 — Carry several firmwares, change between them from the panel</div>
+  <p class="lede">Hermetic's firmware treats the SD card as a place for presets and files. This one
+    also reads <code>.bin</code> files from it, and can write one into the module's firmware slot,
+    verify it, and reboot into it, from a settings page, with the module on and in the rack. Smack
+    and Belt for the Alchemy Lab carry the same page, so any of the three can hand the module to
+    any other.</p>
+
+  <div class="cols">
+    <div class="card"><div class="k">Prepare the card</div><h4>FAT32, a folder named alchemy</h4>
+      <p>32 GB or under, MBR partition table, FAT32. Make a folder called <code>alchemy</code> in
+        the root and put firmware images in it: any <code>.bin</code> built for the Alchemy Lab
+        bootloader, this one included. On a Mac, run <code>dot_clean</code> on the card before
+        ejecting so the picker does not list resource forks as files.</p></div>
+    <div class="card"><div class="k">Or over USB</div><h4>Without pulling the card</h4>
+      <p>Files reach the card over USB while the module runs: the web programmer's file panel,
+        or the repository's <code>tools/hostlink-fs.mjs</code>, which makes the folder and puts
+        the images in it from a terminal. Uploads are staged and renamed onto their final name
+        only after the firmware has checked the CRC.</p></div>
+  </div>
+
+  <h3 class="h">The gesture</h3>
+  <div class="sub">Hold B2 + B3 two seconds · tap B1 to the Firmware page</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Pot</th><th>Does</th><th>Ring</th></tr></thead>
+    <tbody>
+      <tr><td>P1 · FILE</td><td>Picks a file. One dot per <code>.bin</code> in the folder, the chosen one bright; turn to move the choice.</td>
+        <td><span class="sw" style="color:var(--k-file)"></span>green dots · <span class="sw" style="color:#c00000"></span>red: no card · <span class="sw" style="color:#c04800"></span>orange: no folder, or no files</td></tr>
+      <tr><td>P2 · FLASH</td><td>Writes the chosen file. <b>Turn it down below 85%, then all the way up.</b> The dip arms it, so a pot that happens to be parked at maximum cannot fire on entry.</td>
+        <td><span class="sw" style="color:var(--k-erase)"></span>orange erasing · <span class="sw" style="color:var(--k-write)"></span>blue writing · <span class="sw" style="color:var(--k-verify)"></span>green verifying · <span class="sw" style="color:var(--k-done)"></span>white, then reboot · <span class="sw" style="color:var(--k-arm)"></span><b>blinking red: failed, nothing booted; turn down to try again</b></td></tr>
+      <tr><td>P3 · DFU</td><td>Same gesture. Reboots into the bootloader's update mode and stays there for a USB flash: the escape hatch for a firmware that has no picker of its own.</td>
+        <td><span class="sw" style="color:var(--k-dfu)"></span>violet arming bar</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note" style="margin-top:26px">
+    <h3>What it refuses, and what it never touches</h3>
+    <p>It checks the image's first eight bytes before erasing anything and refuses one that is
+      not bootable from SRAM. The largest file it will take is the app slot up to the calibration
+      sector, so the board's calibration record and the preset store are never in the erase
+      path. If a write fails, the module blinks red and boots nothing; the bootloader is intact,
+      and hold-B3-at-power-on still gets you a USB flash.</p>
+    <p><b>What has and has not run.</b> The card side is proven with this same code in Smack: a
+      card in the module has been written and read back byte-identical over USB, through the
+      mount and buffers the picker uses. The picker's own path, listing the folder and writing
+      the slot, has not yet run in any of the three firmwares.</p>
+  </div>
+</div></section>
+
+<section id="build"><div class="wrap">
+  <h2 class="sh">Build it</h2>
+  <div class="sub">10 — No release yet; the source is the download</div>
+  <p class="lede">There is no packaged release of v0.1.0, because nothing has been heard through it.
+    Building takes a few minutes with the ARM toolchain installed.</p>
+  <pre>git clone --recurse-submodules <i data-repo-text></i>
+cd mark-alchemy
+make libdaisy        <b># once</b>
+make                 <b># build/mark_alchemy.bin, ~342 KB, 55 s per track</b>
+make MARK_SECONDS=40 <b># a smaller capacity; the test proves it fits</b>
+make test            <b># the engine on the SDRAM pool, and a first loop</b></pre>
+  <p style="margin-top:20px">Needs <code>arm-none-eabi-gcc</code>, <code>make</code> and
+    <code>dfu-util</code>. libDaisy has nested submodules, so the clone must be recursive or the
+    HAL is missing. <code>make BENCH_USB=1 BUILD_DIR=build-bench</code> builds a variant with
+    HostLink on the Daisy Seed's own micro-USB, for a module out of its case on a bench bootloader;
+    it is not the one to rack.</p>
+</div></section>
+
+<section id="install"><div class="wrap">
+  <h2 class="sh">Installing</h2>
+  <div class="sub">11 — Through the front USB-C, and getting back to stock</div>
+  <p class="lede">The Alchemy Lab's bootloader serves DFU on the front-panel USB-C, so the module
+    stays in the rack. Once this firmware is on it, so does every update after.</p>
+  <div class="cols">
+    <div class="card"><div class="k">First time</div><h4>Hold B3 at power-on</h4>
+      <p>During the two-second boot window the rings run a warm-white comet. Hold B3 through it
+        and they switch to a slow breathe with the B3 lights on: update mode. Then flash the
+        <code>.bin</code> with Hermetic's <a href="https://hermeticmodular.com/program">web
+        programmer</a>, or from the repository:</p>
+      <pre style="margin-top:12px">make program-dfu</pre></div>
+    <div class="card"><div class="k">Every time after</div><h4>Live</h4>
+      <p>With Mark running, the module can be asked to reboot into update mode over HostLink and
+        flashed in the same breath, no button held:</p>
+      <pre style="margin-top:12px">make program-live</pre>
+      <p style="margin-top:12px">Or put the new <code>.bin</code> on the card and use <a href="#card">the
+        picker</a>.</p></div>
+    <div class="card"><div class="k">Back to stock</div><h4>Same door</h4>
+      <p>Flashing any Alchemy Lab firmware, Hermetic's own included, the same way returns the
+        module to it. Presets in the slots survive; this firmware's own working preset is
+        schema-guarded, so another firmware will not read it as its own.</p></div>
+  </div>
+  <div class="note warn" style="margin-top:30px">
+    <h3>Before you flash it</h3>
+    <p>It is custom firmware. Hermetic Modular did not write it, did not test it and cannot
+      support it, so <b>please do not contact them about it</b>. And as of v0.1.0 it has not been
+      heard by anyone, its author included. If you run it before that changes, the things worth
+      reporting are whether the first loop lands where you tapped, whether J3 locks to your clock,
+      and what the boot report reads after a hard session.</p>
+  </div>
+</div></section>
+
+<section id="built"><div class="wrap">
+  <h2 class="sh">How it is built</h2>
+  <div class="sub">12 — The parts worth knowing about</div>
+  <p class="lede">The engine's C file was not touched. Everything below is the layer between it and
+    the Alchemy SDK, and the handful of decisions that shaped that layer.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Piece</th><th>What it is</th></tr></thead>
+    <tbody>
+      <tr><td>The engine, at 48 kHz</td><td>Mark's engine, byte-identical to the Move build's, with two edits in its header: the sample rate, because libDaisy offers no 44.1 kHz, and a build-time track capacity. 128-frame blocks, as the engine expects.</td></tr>
+      <tr><td>Its Move-only needs, stubbed</td><td>The engine uses threads for sessions and dynamic loading for external effects, neither of which exists on this board. Four small headers shadow the POSIX ones it includes and a stub file makes every such call fail the way the real one fails without the resource, so those features go inert instead of being cut out of the engine.</td></tr>
+      <tr><td>Five tracks in SDRAM</td><td>A bump allocator in external RAM, 62 MiB of 64. The engine's own capacity ladder cannot work on it, because the allocator never gives memory back, so the capacity is fixed at build time and a native test proves it fits on the first attempt: 64.7 MB used, 55 seconds a track.</td></tr>
+      <tr><td>Two pages, one layer</td><td>The SDK's Pager makes SETUP a held layer on B3 with pot catch on the way in and out. Nothing on the PLAY page can jump because you looked at the other one.</td></tr>
+      <tr><td>Clock adapter</td><td>Gate edges become 24 ppqn MIDI clock, the same adapter as Smack, gated so the engine hears it only after a pulse and gets a stop when the pulses end.</td></tr>
+      <tr><td>Working preset</td><td>Slot 1 is the live state: both pages, the Settings and the CPU peak. It autosaves five seconds after the last change with hands off the buttons, one 4 KB sector per save. Loop audio is never saved.</td></tr>
+      <tr><td>The picker</td><td>Three Custom slots on a Settings page: a file scanner, a state machine that erases, writes and verifies one step per frame, and a DFU hand-off. Shared, by copy, with Smack and Belt.</td></tr>
+      <tr><td>HostLink</td><td>Product "Mark", both pages, ten jacks, three buttons, a manual and the SD filesystem, over the front USB-C.</td></tr>
+      <tr><td>Budget</td><td>~342 KB image. SRAM 71%, DTCM 57%, SDRAM 97%. CPU: unmeasured.</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:24px">Found something, or want it to do something it doesn't?
+    <a href="#" data-repo="/issues">Open an issue</a>. A report from someone playing it is worth
+    more than anything measurable on a laptop.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2 class="sh">Specifications</h2>
+  <div class="sub">Appendix</div>
+  <div class="cols">
+    <div class="card"><div class="k">Platform</div><h4>Alchemy Lab V2</h4><p>Daisy Seed2 DFM: STM32H750 at 480 MHz, 64 MB SDRAM. 12 HP. Hermetic Modular's Alchemy SDK, beta.</p></div>
+    <div class="card"><div class="k">Audio</div><h4>48 kHz · 128</h4><p>Stereo in on J1/J2, stereo out on J9/J10; the dry input passes to the output unless Settings mutes it.</p></div>
+    <div class="card"><div class="k">Tracks</div><h4>5 × 55 s</h4><p>Five stereo loop tracks and an undo buffer, 64.7 MB of a 62 MiB SDRAM pool.</p></div>
+    <div class="card"><div class="k">Grid</div><h4>Bar · beat · 8th · 16th</h4><p>Measure-quantized sync from a J3 clock or the first loop; polymetric loops on the finer grids.</p></div>
+    <div class="card"><div class="k">Controls</div><h4>6 × 2 · 3 · 6</h4><p>Six pots on two pages, three buttons, a clock, two triggers and three CV inputs, 102 LEDs.</p></div>
+    <div class="card"><div class="k">Storage</div><h4>16 slots + card</h4><p>Sixteen preset slots in QSPI flash; firmware images and files on a FAT32 microSD.</p></div>
+  </div>
+</div></section>
+
+<section id="family"><div class="wrap">
+  <h2 class="sh">The rest of them</h2>
+  <div class="sub">13 — The same engine, and its siblings</div>
+  <p class="lede">Mark started on the Ableton Move under
+    <a href="https://github.com/charlesvestal/schwung">Schwung</a>. This is its second body, and
+    one of three firmwares for this module that share the picker, the allocator and the shape of
+    the code.</p>
+  <div class="fam">
+    <a href="https://timncox.github.io/schwung-mark/">
+      <div class="fn">Mark</div>
+      <div class="fd">The five-track looper on the Move, with sessions, a web mixer and hosted Schwung audio FX. Played and shipped; where this engine came from.</div>
+      <div class="fh">the parent</div>
+    </a>
+    <a href="https://timncox.github.io/smack-alchemy/">
+      <div class="fn">Smack for Alchemy Lab</div>
+      <div class="fd">Live loop capture and seeded per-slice glitch on the same module. The first of the three, and where the picker was written.</div>
+      <div class="fh">sibling firmware</div>
+    </a>
+    <a href="https://timncox.github.io/belt-alchemy/">
+      <div class="fn">Belt for Alchemy Lab</div>
+      <div class="fd">Live vocal processor on the same module: correction, four harmonies, doubler, formant. Patch it before Mark and loop a choir.</div>
+      <div class="fh">sibling firmware</div>
+    </a>
+    <a href="https://timncox.github.io/schwung-smack/">
+      <div class="fn">Smack</div>
+      <div class="fd">Quantized loop capture, auto-slicing and seeded glitch effects on the Move.</div>
+      <div class="fh">move</div>
+    </a>
+    <a href="https://timncox.github.io/schwung-belt/">
+      <div class="fn">Belt</div>
+      <div class="fd">The vocal processor on the Move.</div>
+      <div class="fh">move</div>
+    </a>
+    <a href="https://timncox.github.io/schwung-work/">
+      <div class="fn">Work</div>
+      <div class="fd">Twenty-six machines: twenty-one effects and five sample sources.</div>
+      <div class="fh">move</div>
+    </a>
+  </div>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="fl">Mark for Alchemy Lab</div>
+  <p style="margin-bottom:14px">Custom firmware. Hermetic Modular did not write it, did not review it and
+    cannot support it; <b style="color:var(--ink)">please do not contact them about it</b>. Alchemy Lab is
+    their product and this project is not affiliated with or endorsed by them. Mark is named after
+    Marc Rebillet; the RC-505 is Boss's, and this is not one.</p>
+  <p>Engine from <a href="https://github.com/timncox/schwung-mark">Mark</a>. Built on the
+    <a href="https://github.com/hermetic-modular/alchemy-sdk">Alchemy SDK</a> and
+    <a href="https://github.com/electro-smith/libDaisy">libDaisy</a>. MIT licensed ·
+    <a href="#" data-repo="">source</a></p>
+</div></footer>
+
+<script>
+/* == BEGIN GENERATED GEOMETRY -- tools/emit_panel_geometry.py == */
+const PANEL = {
+ "source": "lib/alchemy-sdk/panel/front-panel-template.kicad_pcb",
+ "units": "mm, front view, origin top-left of the plate, y down",
+ "plate": {
+  "w": 60.96,
+  "h": 128.5,
+  "hp": 12.0
+ },
+ "mount": [
+  {
+   "x": 4.537,
+   "y": 1.297,
+   "w": 5.1,
+   "h": 3.4,
+   "r": 1.7
+  },
+  {
+   "x": 51.312,
+   "y": 1.311,
+   "w": 5.1,
+   "h": 3.4,
+   "r": 1.7
+  },
+  {
+   "x": 4.537,
+   "y": 123.8,
+   "w": 5.1,
+   "h": 3.4,
+   "r": 1.7
+  },
+  {
+   "x": 51.323,
+   "y": 123.812,
+   "w": 5.1,
+   "h": 3.4,
+   "r": 1.7
+  }
+ ],
+ "rails": [
+  7.23,
+  122.18
+ ],
+ "pots": [
+  {
+   "id": "P1",
+   "x": 12.758,
+   "y": 21.304,
+   "hole": 3.6
+  },
+  {
+   "id": "P2",
+   "x": 47.758,
+   "y": 21.304,
+   "hole": 3.6
+  },
+  {
+   "id": "P3",
+   "x": 12.758,
+   "y": 49.304,
+   "hole": 3.6
+  },
+  {
+   "id": "P4",
+   "x": 47.758,
+   "y": 49.304,
+   "hole": 3.6
+  },
+  {
+   "id": "P5",
+   "x": 12.758,
+   "y": 77.304,
+   "hole": 3.6
+  },
+  {
+   "id": "P6",
+   "x": 47.758,
+   "y": 77.304,
+   "hole": 3.6
+  }
+ ],
+ "ring": {
+  "r": 10.09,
+  "leds": 16,
+  "start_hour": 7.5,
+  "step_hours": 0.75,
+  "arc_leds": 13
+ },
+ "buttons": [
+  {
+   "id": "B1",
+   "x": 30.257,
+   "y": 21.31,
+   "hole": 3.1,
+   "halo": 4.0
+  },
+  {
+   "id": "B2",
+   "x": 30.257,
+   "y": 49.312,
+   "hole": 3.1,
+   "halo": 4.0
+  },
+  {
+   "id": "B3",
+   "x": 30.257,
+   "y": 77.32,
+   "hole": 3.1,
+   "halo": 4.0
+  }
+ ],
+ "usb": {
+  "x": 25.317,
+  "y": 89.274,
+  "w": 10.034,
+  "h": 4.044,
+  "r": 2.022
+ },
+ "jacks": [
+  {
+   "id": "J1",
+   "x": 6.699,
+   "y": 100.093,
+   "hole": 3.2
+  },
+  {
+   "id": "J2",
+   "x": 6.699,
+   "y": 113.053,
+   "hole": 3.2
+  },
+  {
+   "id": "J3",
+   "x": 18.51,
+   "y": 100.119,
+   "hole": 3.2
+  },
+  {
+   "id": "J4",
+   "x": 30.286,
+   "y": 100.119,
+   "hole": 3.2
+  },
+  {
+   "id": "J5",
+   "x": 42.014,
+   "y": 100.119,
+   "hole": 3.2
+  },
+  {
+   "id": "J6",
+   "x": 18.51,
+   "y": 113.056,
+   "hole": 3.2
+  },
+  {
+   "id": "J7",
+   "x": 30.286,
+   "y": 113.056,
+   "hole": 3.2
+  },
+  {
+   "id": "J8",
+   "x": 42.014,
+   "y": 113.056,
+   "hole": 3.2
+  },
+  {
+   "id": "J9",
+   "x": 53.901,
+   "y": 100.126,
+   "hole": 3.2
+  },
+  {
+   "id": "J10",
+   "x": 53.889,
+   "y": 113.036,
+   "hole": 3.2
+  }
+ ],
+ "jack_order_assumed": "J3..J8 in reading order; the printed panel is the authority",
+ "labels": {
+  "knob_dy": 14.0,
+  "button_dy": 10.63,
+  "in": [
+   5.556,
+   120.642
+  ],
+  "out": [
+   51.53,
+   120.642
+  ]
+ }
+};
+/* == END GENERATED GEOMETRY == */
+
+/* ---------- what the firmware makes of each hole ---------- */
+const C = {
+  rec:"#ff0000", play:"#00ff00", dub:"#ffc000", stop:"#c0c0c0", empty:"#20202a",
+  track:"#40c0ff", quant:"#40ffc0", recact:"#ff8040", dubmd:"#ffc040", playmd:"#80ffff", tempo:"#ffc040", master:"#ff40a0",
+  dim:"#181818", setup:"#30104a",
+  idle:"#000030", amber:"#ff8000", red:"#ff0000", green:"#00ff00", white:"#ffffff", grey:"#606060", blue:"#0050ff",
+};
+const STATE_COL = { empty:C.empty, rec:C.rec, play:C.play, dub:C.dub, stop:C.stop };
+
+/* the hero and the panel drawing: what each track is doing */
+const HERO_TRACKS = [
+  { s:"play", pos:.62 }, { s:"dub", pos:.62 }, { s:"rec", pos:null }, { s:"stop", pos:null }, { s:"empty", pos:null },
+];
+
+const PAGES = [
+  { name:"PLAY", color:"#40ff80", pots:[
+    { id:"P1", name:"TRACK 1", ring:{style:"track", t:0}, v:.8, sub:"level 0–100% · the track's display · CV on J7",
+      d:"Track 1's level, and its display: the arc is the level in the state colour, red recording, green playing, yellow overdubbing, white stopped, with a white playhead once around per pass.",
+      meta:["engine <b>t1_level</b>","ring <b>state colour + playhead</b>","CV <b>J7</b>"] },
+    { id:"P2", name:"TRACK 2", ring:{style:"track", t:1}, v:.7, sub:"level 0–100% · the track's display · CV on J8",
+      d:"Track 2. In the drawing it is overdubbing: yellow, layering the input onto its loop, playhead in step with track 1 because they share the bar.",
+      meta:["engine <b>t2_level</b>","ring <b>state colour + playhead</b>","CV <b>J8</b>"] },
+    { id:"P3", name:"TRACK 3", ring:{style:"track", t:2}, v:.75, sub:"level 0–100% · the track's display",
+      d:"Track 3. In the drawing it is recording: the arc red, filling as the bar counts. A record that is waiting for the bar line blinks instead.",
+      meta:["engine <b>t3_level</b>","ring <b>state colour + playhead</b>"] },
+    { id:"P4", name:"TRACK 4", ring:{style:"track", t:3}, v:.6, sub:"level 0–100% · the track's display",
+      d:"Track 4. In the drawing it is stopped with a loop in it: white. Select it and tap B1 to start it on the next bar line.",
+      meta:["engine <b>t4_level</b>","ring <b>state colour + playhead</b>"] },
+    { id:"P5", name:"TRACK 5", ring:{style:"track", t:4}, v:.5, sub:"level 0–100% · the track's display",
+      d:"Track 5. Empty: the arc still shows the level, near dark, so a turned-down pot is never mistaken for an empty track.",
+      meta:["engine <b>t5_level</b>","ring <b>state colour + playhead</b>"] },
+    { id:"P6", name:"TRACK", ring:{style:"sel", c:C.track, n:5}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · CV on J6",
+      d:"Which track B1, B2, J4 and J5 act on. The B1 light shows that track's state. A sequencer into J6 walks it.",
+      meta:["target <b>B1 · B2 · J4 · J5</b>","ring <b>5 dots</b>","deadband <b>2%</b>"] },
+  ]},
+  { name:"SETUP", color:"#c060ff", pots:[
+    { id:"P1", name:"QUANTIZE", ring:{style:"sel", c:C.quant, n:5}, v:1.5/5, sub:"Off · Bar · Beat · 8th · 16th",
+      d:"The grid a recording's length rounds to and a start waits for, once something is playing or a clock is running. Finer grids allow polymetric loops.",
+      meta:["engine <b>quantize · rec_grid</b>","ring <b>5 dots</b>","default <b>Bar</b>"] },
+    { id:"P2", name:"REC →", ring:{style:"sel", c:C.recact, n:2}, v:.25, sub:"Play · Overdub",
+      d:"What a recording drops into when you end it: straight into playback, or straight into overdubbing so the next layer starts on the same tap.",
+      meta:["engine <b>rec_action</b>","ring <b>2 dots</b>","default <b>Play</b>"] },
+    { id:"P3", name:"DUB", ring:{style:"sel", c:C.dubmd, n:2}, v:.25, sub:"Overdub · Replace",
+      d:"Overdub layers the input onto the loop; Replace writes over it. Undo covers either.",
+      meta:["engine <b>dub_mode</b>","ring <b>2 dots</b>","default <b>Overdub</b>"] },
+    { id:"P4", name:"PLAY", ring:{style:"sel", c:C.playmd, n:2}, v:.25, sub:"Multi · Single",
+      d:"Multi lets every track play together. Single makes starting one track stop the others on the bar line: verse, chorus, bridge as tracks.",
+      meta:["engine <b>play_mode</b>","ring <b>2 dots</b>","default <b>Multi</b>"] },
+    { id:"P5", name:"TEMPO", ring:{style:"level", c:C.tempo}, v:(120-50)/150, sub:"50–200 BPM",
+      d:"The bar length nothing else has set. Unclocked, it only tells the module how many bars your first loop was. With a clock on J3 it is the adapter's fallback.",
+      meta:["engine <b>bpm_override</b>","ring <b>level</b>","default <b>120</b>"] },
+    { id:"P6", name:"MASTER", ring:{style:"level", c:C.master}, v:.5, sub:"0–200%",
+      d:"The loop mix out, with headroom above unity. The dry input is not under it; Settings decides whether the dry input passes at all.",
+      meta:["engine <b>master</b>","ring <b>level</b>","default <b>100%</b>"] },
+  ]},
+];
+
+const BUTTONS = [
+  { id:"B1", name:"REC / PLAY", sub:"tap · hold · hold 2 s",
+    d:"The selected track's button. Tap: record, then play, then overdub, then play. Hold past half a second: undo or redo the last take; the light goes white when the hold has reached it. Hold two seconds: clear the track. Its light is the track's state.",
+    meta:["light <b>the track</b>","undo <b>0.6 s</b>","clear <b>2 s</b>"] },
+  { id:"B2", name:"STOP", sub:"tap · hold",
+    d:"Tap: stop the selected track. Hold past half a second: ALL, every playing track stops or every stopped track starts. Its light is the CLOCK: blue locked to J3, grey free-running, red if the CPU is over 80%. Stands down while B3 is held.",
+    meta:["light <b>CLOCK</b>","all <b>0.6 s</b>","with B3 <b>Settings, after 2 s</b>"] },
+  { id:"B3", name:"SETUP", sub:"hold",
+    d:"Shows the SETUP page on the pots while held, with catch both ways so nothing jumps. During the boot window it is the bootloader's update-mode button instead.",
+    meta:["page <b>SETUP</b>","boot <b>DFU</b>","with B2 <b>Settings, after 2 s</b>"] },
+];
+
+const JACKS = {
+  J1:{ name:"IN L",  sub:"audio in, left",  d:"Left channel in. What the tracks record, and what passes through to the output while DRY INPUT is Through.", meta:["kind <b>codec in</b>"] },
+  J2:{ name:"IN R",  sub:"audio in, right", d:"Right channel in. The loops are stereo.", meta:["kind <b>codec in</b>"] },
+  J3:{ name:"CLOCK", sub:"gate in · ratio in Settings", d:"A clock. Fed to the engine only after a pulse has arrived, so with nothing patched the first loop sets the bar. Read raw in the audio callback on the magnitude of the swing from the calibrated zero. Unheard.", meta:["assert <b>1.5 V</b>","release <b>0.5 V</b>","ratio <b>Settings P5</b>"] },
+  J4:{ name:"REC TRIGGER", sub:"gate in", d:"A rising edge is a tap on B1 for the selected track: record, play, overdub. A sequencer's record button.", meta:["acts as <b>B1 tap</b>","on <b>TRACK</b>"] },
+  J5:{ name:"STOP TRIGGER", sub:"gate in", d:"A rising edge is a tap on B2 for the selected track.", meta:["acts as <b>B2 tap</b>","on <b>TRACK</b>"] },
+  J6:{ name:"CV → TRACK",   sub:"±5 V, summed with PLAY P6", d:"Adds to the TRACK pot: a sequencer walks the five tracks.", meta:["drives <b>PLAY P6</b>"] },
+  J7:{ name:"CV → LEVEL 1", sub:"±5 V, summed with PLAY P1", d:"Adds to track 1's level.", meta:["drives <b>PLAY P1</b>"] },
+  J8:{ name:"CV → LEVEL 2", sub:"±5 V, summed with PLAY P2", d:"Adds to track 2's level.", meta:["drives <b>PLAY P2</b>"] },
+  J9:{ name:"OUT L", sub:"audio out, left",  d:"Left channel out: the five loops through MASTER, plus the dry input when Settings has it Through.", meta:["kind <b>codec out</b>"] },
+  J10:{name:"OUT R", sub:"audio out, right", d:"Right channel out.", meta:["kind <b>codec out</b>"] },
+};
+const USB = { name:"USB-C", sub:"HostLink · DFU", d:"Firmware updates, presets, settings and the SD card's files, from the front, with the module racked. Hold B3 at power-on and the bootloader serves DFU here.", meta:["bootloader <b>DFU</b>","running <b>HostLink</b>"] };
+
+/* ---------- drawing ---------- */
+const NS = "http://www.w3.org/2000/svg";
+function el(n, a, parent) {
+  const e = document.createElementNS(NS, n);
+  for (const k in a) e.setAttribute(k, a[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function hourXY(cx, cy, r, hour) {
+  const a = hour / 12 * Math.PI * 2;
+  return [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+}
+/* LED colours for one ring, 16 entries, index = arc position from 7.5 h clockwise.
+   `tr` is the track state for the "track" style: {s, pos, pend, blink}. */
+function ringColours(ring, v, tr) {
+  const g = PANEL.ring, N = g.arc_leds, out = new Array(g.leds).fill(null);
+  if (ring.style === "level") {
+    const n = Math.round(v * N);
+    for (let i = 0; i < N; i++) out[i] = i < n ? ring.c : C.dim;
+  } else if (ring.style === "sel") {
+    const z = Math.min(ring.n - 1, Math.floor(v * ring.n));
+    for (let q = 0; q < ring.n; q++) out[Math.round(q * (N - 1) / (ring.n - 1))] = (q === z) ? ring.c : C.dim;
+  } else if (ring.style === "track") {
+    /* the firmware's TrackRing: the level as an arc in the state colour,
+       never fewer than one LED, dim while a pending action blinks, and a
+       white playhead pip once around per loop pass */
+    const t = tr || { s:"empty", pos:null };
+    let c = STATE_COL[t.s] || C.empty;
+    if (t.pend && t.blink) c = C.dim;
+    const n = Math.max(1, Math.round(v * N));
+    for (let i = 0; i < N; i++) out[i] = i < n ? c : null;
+    if ((t.s === "play" || t.s === "dub") && t.pos != null) out[Math.round(t.pos * (N - 1))] = C.white;
+  } else if (ring.style === "boot") {
+    for (let i = 0; i < N; i++) out[i] = C.dim;
+    if (v <= 0) out[0] = "#2040c0";
+    else { const c = v >= .9 ? C.red : v >= .75 ? C.amber : C.green; const n = Math.round(v * N); for (let i = 0; i < n; i++) out[i] = c; }
+  }
+  return out;
+}
+function drawRing(g, cx, cy, ring, v, tr) {
+  const geo = PANEL.ring, cols = ringColours(ring, v, tr);
+  for (let i = 0; i < geo.leds; i++) {
+    const hour = (geo.start_hour + geo.step_hours * i) % 12;
+    const [x, y] = hourXY(cx, cy, geo.r, hour);
+    const arc = i < geo.arc_leds;
+    const c = cols[i];
+    const lit = arc && c && c !== C.dim && c !== C.empty;
+    if (lit) el("circle", { cx:x, cy:y, r:1.55, fill:c, opacity:.22 }, g);
+    el("circle", { cx:x, cy:y, r:.72, fill: arc ? (c || "#0e0d13") : "#101014", opacity: arc ? 1 : .6 }, g);
+  }
+}
+function drawKnob(g, cx, cy, v) {
+  el("circle", { cx, cy, r:6.2, fill:"#0f0e14", stroke:"rgba(255,255,255,.10)", "stroke-width":.25 }, g);
+  el("circle", { cx, cy, r:5.4, fill:"#1a1822" }, g);
+  const hour = PANEL.ring.start_hour + v * (PANEL.ring.step_hours * (PANEL.ring.arc_leds - 1));
+  const [x1, y1] = hourXY(cx, cy, 2.2, hour), [x2, y2] = hourXY(cx, cy, 5.0, hour);
+  el("line", { x1, y1, x2, y2, stroke:"#e8e2f0", "stroke-width":.7, "stroke-linecap":"round" }, g);
+}
+function drawButton(g, b, halo) {
+  if (halo && halo !== C.idle) el("circle", { cx:b.x, cy:b.y, r:b.halo + 1.6, fill:halo, opacity:.22 }, g);
+  el("circle", { cx:b.x, cy:b.y, r:b.halo, fill: halo || "#101018", opacity: halo ? .85 : 1 }, g);
+  el("circle", { cx:b.x, cy:b.y, r:b.hole, fill:"#0d0c12", stroke:"rgba(255,255,255,.14)", "stroke-width":.25 }, g);
+  el("circle", { cx:b.x, cy:b.y, r:2.2, fill:"#1c1a24" }, g);
+}
+function drawJack(g, j) {
+  el("circle", { cx:j.x, cy:j.y, r:3.9, fill:"#0f0e14", stroke:"rgba(255,255,255,.12)", "stroke-width":.25 }, g);
+  el("circle", { cx:j.x, cy:j.y, r:j.hole, fill:"#1b1923" }, g);
+  el("circle", { cx:j.x, cy:j.y, r:1.5, fill:"#050507" }, g);
+}
+const JACKLEGEND = { J1:"IN L", J2:"IN R", J3:"CLK", J4:"REC", J5:"STOP", J6:"TRACK", J7:"LVL 1", J8:"LVL 2", J9:"OUT L", J10:"OUT R" };
+
+/* state: page index, values per page, button halos, track states */
+function drawPanel(svg, st, onHover) {
+  svg.textContent = "";
+  const P = PANEL, page = PAGES[st.page];
+  const plate = el("g", {}, svg);
+  el("rect", { x:0, y:0, width:P.plate.w, height:P.plate.h, rx:1.2, fill:"#181c19", stroke:"rgba(232,240,230,.18)", "stroke-width":.3 }, plate);
+  for (const m of P.mount) el("rect", { x:m.x, y:m.y, width:m.w, height:m.h, rx:m.r, fill:"#0b0f0c", stroke:"rgba(255,255,255,.12)", "stroke-width":.2 }, plate);
+  for (const y of P.rails) el("line", { x1:2, y1:y, x2:P.plate.w - 2, y2:y, stroke:"rgba(76,242,138,.22)", "stroke-width":.25 }, plate);
+  el("text", { x:P.plate.w / 2, y:P.rails[0] - 2.2, class:"legend" }, plate).textContent = "MARK";
+
+  const mk = (key) => {
+    const g = el("g", { class:"hole" + (st.sel === key ? " sel" : ""), "data-key":key }, svg);
+    if (onHover) {
+      g.addEventListener("mouseenter", () => onHover(key, false));
+      g.addEventListener("click", (e) => { e.stopPropagation(); onHover(key, true); });
+    }
+    return g;
+  };
+
+  P.pots.forEach((p, i) => {
+    const k = page.pots[i], v = st.values[st.page][i];
+    const g = mk("P" + (i + 1));
+    drawRing(g, p.x, p.y, k.ring, v, k.ring.style === "track" ? st.tracks[k.ring.t] : null);
+    drawKnob(g, p.x, p.y, v);
+    el("text", { x:p.x, y:p.y + P.labels.knob_dy, class:"plabel lit" }, g).textContent = k.name;
+    el("circle", { cx:p.x, cy:p.y, r:P.ring.r + 2.2, class:"hit" }, g);
+  });
+  P.buttons.forEach((b, i) => {
+    const g = mk("B" + (i + 1));
+    drawButton(g, b, st.halos[i]);
+    el("text", { x:b.x, y:b.y + P.labels.button_dy, class:"plabel" }, g).textContent = BUTTONS[i].name;
+    el("circle", { cx:b.x, cy:b.y, r:b.halo + 2.2, class:"hit" }, g);
+  });
+  { const u = P.usb, g = mk("USB");
+    el("rect", { x:u.x, y:u.y, width:u.w, height:u.h, rx:u.r, fill:"#08080b", stroke:"rgba(255,255,255,.16)", "stroke-width":.25 }, g);
+    el("rect", { x:u.x - 1, y:u.y - 1, width:u.w + 2, height:u.h + 2, rx:u.r + 1, class:"hit" }, g); }
+  const rows = [...new Set(P.jacks.map(j => Math.round(j.y)))].sort((a, b) => a - b);
+  P.jacks.forEach(j => {
+    const g = mk(j.id);
+    drawJack(g, j);
+    const top = Math.round(j.y) === rows[0];
+    el("text", { x:j.x, y:j.y + (top ? 6.9 : 7.6), class:"jlabel" }, g).textContent = JACKLEGEND[j.id];
+    el("circle", { cx:j.x, cy:j.y, r:5.2, class:"hit" }, g);
+  });
+  el("text", { x:P.labels.in[0] + 1.2, y:P.labels.in[1] + 3.2, class:"legend" }, plate).textContent = "IN";
+  el("text", { x:P.labels.out[0] - 1.2, y:P.labels.out[1] + 3.2, class:"legend" }, plate).textContent = "OUT";
+}
+
+const PLAYV  = PAGES[0].pots.map(k => k.v);
+const SETUPV = PAGES[1].pots.map(k => k.v);
+
+/* hero: unclocked, track 1 selected and playing */
+drawPanel(document.getElementById("heroSvg"), { page:0, values:[PLAYV, SETUPV], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null });
+
+/* the interactive one */
+const iv = { page:0, values:[PLAYV.slice(), SETUPV.slice()], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null };
+const psvg = document.getElementById("panelSvg");
+const ro = { k:document.getElementById("roK"), t:document.getElementById("roT"), s:document.getElementById("roS"), d:document.getElementById("roD"), m:document.getElementById("roM") };
+const roDefault = { k:ro.k.textContent, t:ro.t.textContent, s:ro.s.textContent, d:ro.d.textContent, m:ro.m.innerHTML };
+let pinned = null;
+
+function describe(key) {
+  if (!key) return null;
+  if (key[0] === "P") { const i = +key[1] - 1, k = PAGES[iv.page].pots[i];
+    return { k:`${key} · ${PAGES[iv.page].name} page`, t:k.name, s:k.sub, d:k.d, m:k.meta }; }
+  if (key[0] === "B") { const b = BUTTONS[+key[1] - 1]; return { k:key, t:b.name, s:b.sub, d:b.d, m:b.meta }; }
+  if (key === "USB") return { k:"front panel", t:USB.name, s:USB.sub, d:USB.d, m:USB.meta };
+  const j = JACKS[key]; return { k:key, t:j.name, s:j.sub, d:j.d, m:j.meta };
+}
+function showReadout(key) {
+  const x = describe(key);
+  if (!x) { ro.k.textContent = roDefault.k; ro.t.textContent = roDefault.t; ro.s.textContent = roDefault.s; ro.d.textContent = roDefault.d; ro.m.innerHTML = roDefault.m; return; }
+  ro.k.textContent = x.k; ro.t.textContent = x.t; ro.s.textContent = x.s; ro.d.textContent = x.d;
+  ro.m.innerHTML = x.m.map(s => `<div>${s}</div>`).join("");
+}
+function onHover(key, click) {
+  if (click) { pinned = (pinned === key) ? null : key; iv.sel = pinned; redraw(); }
+  showReadout(pinned || key);
+}
+function redraw() { drawPanel(psvg, iv, onHover); }
+psvg.addEventListener("mouseleave", () => showReadout(pinned));
+psvg.addEventListener("click", () => { pinned = null; iv.sel = null; redraw(); showReadout(null); });
+redraw();
+
+function setPage(p) {
+  iv.page = p;
+  iv.halos = p === 0 ? [C.play, C.grey, C.setup] : [C.play, C.grey, PAGES[1].color];
+  document.getElementById("tgPlay").setAttribute("aria-pressed", p === 0);
+  document.getElementById("tgSetup").setAttribute("aria-pressed", p === 1);
+  document.getElementById("tgCap").textContent = p === 0 ? "rings as the firmware draws them: playing, overdubbing, recording, stopped, empty" : "the same pots while B3 is held; B3 lights in the page colour";
+  redraw(); showReadout(pinned);
+}
+document.getElementById("tgPlay").addEventListener("click", () => setPage(0));
+document.getElementById("tgSetup").addEventListener("click", () => setPage(1));
+
+/* ---------- the five tracks, live: mark_core's track logic ---------- */
+/*
+  What is ported: track_button / track_stop / track_clear / all_button /
+  undo_press and schedule(): an action is immediate unless QUANTIZE is on
+  AND something is playing (the "base" track, the lowest-numbered one), in
+  which case it waits for the base track's bar line. A recording ended while
+  a base plays rounds to the nearest whole bar and keeps recording to reach
+  it; the first loop, with nothing playing, is free length and its length
+  becomes the bar. Undo: the last take. Times are in seconds of page time.
+*/
+const D = {
+  tracks: Array.from({ length:5 }, (_, i) => ({ s:"empty", pos:0, len:0, rec:0, target:0, pend:0, level:[.8,.7,.75,.6,.5][i], layers:0, undone:false })),
+  sel:0, bar:0, undo:null, t:0, log:"",
+};
+const TEMPO_BAR = 2.0;   /* 120 BPM, four beats */
+const basePlaying = () => D.tracks.find(t => t.len > 0 && (t.s === "play" || t.s === "dub")) || null;
+const optQ = () => document.getElementById("optQuant").checked;
+const optR = () => document.getElementById("optRecAct").checked;
+const optS = () => document.getElementById("optSingle").checked;
+function say(s) { D.log = s; }
+function startRecord(t, i) { t.s = "rec"; t.rec = 0; t.target = 0; t.pend = 0; say(`Track ${i + 1} is recording.`); }
+function startPlay(t, i) {
+  t.s = "play"; t.pos = 0; t.pend = 0;
+  if (optS()) D.tracks.forEach((o, j) => { if (j !== i && (o.s === "play" || o.s === "dub")) { o.s = "stop"; o.pos = 0; } });
+  say(`Track ${i + 1} is playing${optS() ? "; Single stopped the others" : ""}.`);
+}
+function finalize(t, i, len, end) {
+  t.len = len; t.rec = 0; t.target = 0; t.pos = 0;
+  if (D.bar <= 0) { const k = Math.max(1, Math.round(len / TEMPO_BAR)); D.bar = len / k; }
+  t.s = end; t.layers = 1; t.undone = false;
+  D.undo = { i, kind:"rec" };
+  if (end === "dub") { D.undo = { i, kind:"dub" }; t.layers = 2; }
+  if (optS() && end !== "stop") D.tracks.forEach((o, j) => { if (j !== i && (o.s === "play" || o.s === "dub")) { o.s = "stop"; o.pos = 0; } });
+  say(`Track ${i + 1}: ${len.toFixed(2)} s, ${Math.round(len / D.bar)} bar${Math.round(len / D.bar) === 1 ? "" : "s"}${end === "dub" ? ", straight into overdub" : end === "stop" ? ", stopped" : ", playing"}.`);
+}
+function requestFinish(t, i, end) {
+  let target = t.rec;
+  if (optQ()) {
+    const g = basePlaying() ? D.bar : TEMPO_BAR;
+    if (basePlaying()) { const k = Math.max(1, Math.round(t.rec / g)); target = k * g; }
+  }
+  if (target <= t.rec + 1e-6) finalize(t, i, target, end);
+  else { t.target = target; t.targetEnd = end; say(`Track ${i + 1} keeps recording to the bar line.`); }
+}
+function schedule(t, i, action) {
+  const quantized = optQ() && basePlaying() !== null;
+  if (!quantized) { action === 1 ? startRecord(t, i) : startPlay(t, i); }
+  else { t.pend = action; say(`Track ${i + 1} waits for the bar line to ${action === 1 ? "record" : "start"}.`); }
+}
+function b1tap() {
+  const i = D.sel, t = D.tracks[i];
+  if (t.pend) { t.pend = 0; say(`Track ${i + 1}: cancelled.`); return; }
+  switch (t.s) {
+    case "empty": schedule(t, i, 1); break;
+    case "rec":   requestFinish(t, i, optR() ? "dub" : "play"); break;
+    case "play":  t.s = "dub"; t.layers++; t.undone = false; D.undo = { i, kind:"dub" }; say(`Track ${i + 1} is overdubbing.`); break;
+    case "dub":   t.s = "play"; say(`Track ${i + 1} back to playing; the layer stays.`); break;
+    case "stop":  schedule(t, i, 2); break;
+  }
+}
+function b2tap() {
+  const i = D.sel, t = D.tracks[i];
+  if (t.pend) { t.pend = 0; say(`Track ${i + 1}: cancelled.`); return; }
+  if (t.s === "rec") requestFinish(t, i, "stop");
+  else if (t.s === "play" || t.s === "dub") { t.s = "stop"; t.pos = 0; say(`Track ${i + 1} stopped.`); }
+}
+function b1hold() {
+  if (!D.undo) { say("Nothing to undo yet."); return; }
+  const t = D.tracks[D.undo.i], n = D.undo.i + 1;
+  if (D.undo.kind === "rec") {
+    if (t.s !== "empty") { t.savedLen = t.len; t.len = 0; t.s = "empty"; if (!D.tracks.some(o => o.len > 0 || o.s === "rec")) D.bar = 0; say(`Undo: track ${n}'s recording is gone. Hold again to bring it back.`); }
+    else { t.len = t.savedLen; t.s = "stop"; t.pos = 0; if (D.bar <= 0) { const k = Math.max(1, Math.round(t.len / TEMPO_BAR)); D.bar = t.len / k; } say(`Redo: track ${n} is back, stopped.`); }
+  } else {
+    if (t.s === "dub") { say(`Leave overdub first (tap B1), then undo.`); return; }
+    t.undone = !t.undone; say(t.undone ? `Undo: track ${n}'s last overdub is swapped out.` : `Redo: track ${n}'s overdub is back.`);
+  }
+}
+function b1clear() { const i = D.sel, t = D.tracks[i]; Object.assign(t, { s:"empty", len:0, rec:0, target:0, pend:0, pos:0, layers:0, undone:false }); if (D.undo && D.undo.i === i) D.undo = null; if (!D.tracks.some(o => o.len > 0 || o.s === "rec")) D.bar = 0; say(`Track ${i + 1} cleared.`); }
+function b2hold() {
+  if (basePlaying()) {
+    D.tracks.forEach((t, i) => { t.pend = 0; if (t.s === "rec") requestFinish(t, i, "stop"); else if (t.s === "play" || t.s === "dub") { t.s = "stop"; t.pos = 0; } });
+    say("ALL: everything stopped.");
+  } else {
+    let n = 0;
+    for (let i = 0; i < 5; i++) { const t = D.tracks[i]; if (t.len > 0 && t.s === "stop") { t.s = "play"; t.pos = 0; n++; if (optS()) break; } }
+    say(n ? `ALL: ${n} track${n === 1 ? "" : "s"} started together.` : "ALL: nothing to start.");
+  }
+}
+
+let deckSvgs = [];
+function buildDeck() {
+  const host = document.getElementById("deckTracks");
+  host.innerHTML = "";
+  deckSvgs = D.tracks.map((t, i) => {
+    const b = document.createElement("button");
+    b.className = "trk"; b.setAttribute("aria-pressed", i === D.sel);
+    b.innerHTML = `<svg viewBox="-13 -13 26 26" role="img" aria-label="track ${i + 1} ring"></svg><div class="tn">track ${i + 1}</div><div class="ts"></div>`;
+    b.addEventListener("click", () => { D.sel = i; say(`Track ${i + 1} selected.`); renderDeck(); });
+    host.appendChild(b);
+    return b;
+  });
+}
+function renderDeck() {
+  const blink = Math.floor(D.t * 1000 / 150) % 2 === 1;
+  D.tracks.forEach((t, i) => {
+    const b = deckSvgs[i], svg = b.querySelector("svg");
+    b.setAttribute("aria-pressed", i === D.sel);
+    svg.textContent = "";
+    el("circle", { cx:0, cy:0, r:12.2, fill:"#0f150f" }, svg);
+    const g = el("g", {}, svg);
+    const shown = { s:t.s, pos:(t.s === "play" || t.s === "dub") ? t.pos : null, pend:t.pend, blink };
+    drawRing(g, 0, 0, { style:"track" }, t.level, shown);
+    drawKnob(g, 0, 0, t.level);
+    const words = { empty:"empty", rec:"recording", play:"playing", dub:"overdub", stop:"stopped" };
+    let w = t.pend ? (t.pend === 1 ? "record · waiting" : "start · waiting") : words[t.s];
+    if (t.s === "rec" && t.target) w = "to the bar line";
+    if (t.undone) w += " · undone";
+    b.querySelector(".ts").textContent = w;
+  });
+  const s = D.tracks[D.sel];
+  let b1 = { empty:"#000030", rec:C.rec, play:C.play, dub:C.dub, stop:C.stop }[s.s];
+  if (s.pend && blink) b1 = C.dim;
+  document.getElementById("lB1").style.color = b1;
+  document.getElementById("deckBar").textContent = D.bar > 0 ? `bar: ${D.bar.toFixed(2)} s, set by the first loop` : "bar: not set yet";
+  document.getElementById("deckLog").textContent = D.log;
+}
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now; D.t += dt;
+  const base = basePlaying();
+  let wrapped = false;
+  D.tracks.forEach((t) => {
+    if ((t.s === "play" || t.s === "dub") && t.len > 0) {
+      t.pos += dt / t.len;
+      if (t.pos >= 1) { t.pos -= 1; if (t === base) wrapped = true; }
+    }
+  });
+  if (wrapped) D.tracks.forEach((t, i) => { if (t.pend === 1) startRecord(t, i); else if (t.pend === 2) startPlay(t, i); });
+  D.tracks.forEach((t, i) => {
+    if (t.s === "rec") { t.rec += dt; if (t.target && t.rec >= t.target) finalize(t, i, t.target, t.targetEnd); }
+  });
+  renderDeck();
+  requestAnimationFrame(tick);
+}
+buildDeck();
+document.getElementById("dbB1").addEventListener("click", () => { b1tap(); renderDeck(); });
+document.getElementById("dbB1h").addEventListener("click", () => { b1hold(); renderDeck(); });
+document.getElementById("dbB1c").addEventListener("click", () => { b1clear(); renderDeck(); });
+document.getElementById("dbB2").addEventListener("click", () => { b2tap(); renderDeck(); });
+document.getElementById("dbB2h").addEventListener("click", () => { b2hold(); renderDeck(); });
+say("Track 1 is empty. Tap B1 to record it; with nothing playing and no clock, recording starts at once.");
+requestAnimationFrame(tick);
+
+/* ---------- boot report simulator ---------- */
+const simSvg = document.getElementById("simRing"), cpu = document.getElementById("cpu");
+function renderCpu() {
+  const v = +cpu.value / 100;
+  simSvg.textContent = "";
+  el("circle", { cx:0, cy:0, r:12.2, fill:"#121810" }, simSvg);
+  const g = el("g", {}, simSvg);
+  drawRing(g, 0, 0, { style:"boot" }, v, null);
+  drawKnob(g, 0, 0, PLAYV[0]);
+  el("text", { x:0, y:PANEL.labels.knob_dy - 2.6, class:"plabel lit", style:"font-size:2.2px" }, g).textContent = "P1 · TRACK 1";
+  document.getElementById("cpuVal").textContent = v <= 0 ? "no data" : Math.round(v * 100) + "%";
+  document.getElementById("cpuCap").textContent = v <= 0 ? "first boot after flashing" : "shown for 2.5 s at power-up";
+  const say2 = v <= 0 ? "A single dim blue LED means the module has not measured anything yet. Play for a few minutes, power-cycle, and look again."
+    : v < .75 ? `Green: ${Math.round(v*13)} of 13 LEDs. It fits, with room.`
+    : v < .90 ? "Amber: it fits, without much room. Five tracks overdubbing with the built-in FX would be the case that pushes it."
+    : "Red: the callback overran at some point. The B2 light would have gone red while it happened.";
+  document.getElementById("cpuVerdict").textContent = say2;
+}
+cpu.addEventListener("input", renderCpu);
+renderCpu();
+
+/* ---------- repo links ---------- */
+document.querySelectorAll("[data-repo]").forEach(a => { a.href = REPO + a.dataset.repo; });
+document.querySelectorAll("[data-repo-text]").forEach(e => { e.textContent = REPO + ".git"; });
+</script>
+</body>
+</html>

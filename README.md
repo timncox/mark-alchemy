@@ -60,6 +60,15 @@ chosen firmware. Every firmware in this family (Smack, Mark, Belt) carries
 the same page, so the card is the module's library and any of them can
 hand the module to any other.
 
+## The site
+
+`docs/index.html` is the operation manual, a single file meant for GitHub
+Pages from `main:/docs`. Its panel drawing is generated from the SDK's KiCad
+front-panel template by `tools/emit_panel_geometry.py`; run it with
+`--check` before publishing and `--write` after the template changes, and
+never hand-edit the coordinates. The repository URL the page links to is one
+constant at the top of the file.
+
 ## Files on the card over USB
 
 `tools/hostlink-fs.mjs` speaks HostLink's filesystem block, so images reach
