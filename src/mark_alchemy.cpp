@@ -1,0 +1,993 @@
+/*
+ * Mark on the Hermetic Modular Alchemy Lab V2 -- the RC-505-style five-track
+ * live looper as Alchemy SDK firmware.
+ *
+ * The DSP is mark_core, vendored from schwung-mark (see vendor/mark_core.h
+ * for the two edits: 48 kHz, and a build-time track capacity). This file is
+ * the host shim: six pots on two pages, three buttons, six CV jacks and 102
+ * LEDs to the engine's string parameter API, and the clock jack turned into
+ * the 24 ppqn MIDI clock the engine already speaks (clock_adapter.c, from
+ * the Smack ports, unchanged).
+ *
+ * Shared by copy with smack-alchemy and belt-alchemy: the shape of this
+ * file, the picker, the allocator, the autosave. See DESIGN.md.
+ *
+ *   PLAY   LEVEL 1-5 (each ring is that track's RC-505 display) · TRACK select
+ *   SETUP  QUANTIZE · REC-> · DUB · PLAY MODE · TEMPO · MASTER   (hold B3)
+ *   B1     the selected track's REC/PLAY button: tap = record -> play ->
+ *          overdub, hold = undo/redo, hold 2 s = clear
+ *   B2     tap = stop the track, hold = ALL start/stop
+ *   J3     clock; J4 record trigger; J5 stop trigger; J6-J8 CV
+ *   Settings (B2+B3 2 s): dry input, clock ratio; page 1 = the SD picker
+ *
+ * The Move's per-track pan / reverse / one-shot / track FX and its sessions
+ * are not on this panel yet (v0.2 candidates); the engine still has them.
+ */
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "daisy_seed.h"
+#include "hid/usb.h"
+#include "util/CpuLoadMeter.h"
+
+#include "alchemy/hw/alchemy_lab.h"
+#include "alchemy/hw/v2_calibration.h"
+#include "alchemy/host_link/cdc_transport.h"
+#include "alchemy/host_link/host.h"
+#include "alchemy/storage/fs_extension.h"
+#include "alchemy/storage/sd_card.h"
+#include "alchemy/surface/control_loop.h"
+#include "alchemy/surface/cv_matrix.h"
+#include "alchemy/surface/jack.h"
+#include "alchemy/surface/manual.h"
+#include "alchemy/surface/page.h"
+#include "alchemy/surface/pager.h"
+#include "alchemy/surface/presets.h"
+#include "alchemy/surface/settings.h"
+#include "alchemy/surface/virtual_button.h"
+#include "alchemy/surface/virtual_knob.h"
+
+#include "clock_adapter.h"
+#include "extras.h"
+#include "picker.h"
+#include "versio_alloc.h"
+
+/* versio_alloc.h first, then the engine inside extern "C" -- see the note in
+ * versio_alloc.h about include order and linkage. */
+extern "C" {
+#include "vendor/mark_core.h"
+}
+
+#ifndef MARK_VERSION
+#define MARK_VERSION "0.0.0"
+#endif
+#ifndef MARK_GIT_HASH
+#define MARK_GIT_HASH "dev"
+#endif
+
+using namespace alchemy;
+using daisy::System;
+
+/* ---- geometry ----------------------------------------------------------- */
+
+/* The engine's block (MARK_BLOCK_FRAMES); mark_process clamps to it. */
+static constexpr uint32_t kBlockSize = 128u;
+static_assert(kBlockSize == 128u, "mark_core's MARK_BLOCK_FRAMES is 128");
+
+/* CV indices: J3 clock, J4 record trigger, J5 stop trigger. */
+static constexpr uint8_t kClockJack = 0u;
+static constexpr uint8_t kRecJack   = 1u;
+static constexpr uint8_t kStopJack  = 2u;
+
+enum : uint8_t { kPagePlay = 0, kPageSetup = 1, kNumAppPages = 2 };
+enum : uint8_t { kSettingsMain = 0, kSettingsFirmware = 1 };
+
+/* ---- hardware + engine -------------------------------------------------- */
+
+static AlchemyLab          hw;
+static daisy::CpuLoadMeter cpu;
+
+/* Sized in versio_alloc.h so this and test/test_alloc.c cannot drift. Five
+ * tracks and the undo buffer at MARK_MAX_SECONDS each; the Seed2 DFM has
+ * 64 MB of SDRAM. */
+static uint8_t DSY_SDRAM_BSS g_pool[VERSIO_POOL_BYTES];
+
+static mark_t*         M = nullptr;
+static clock_adapter_t CLK;
+static host_api_v1_t   HOST;
+
+/* Engine readbacks published by the control loop for the LEDs. Plain
+ * aligned words: a torn read is impossible, a one-frame-stale value is
+ * invisible. */
+static int   G_TSTATE[MARK_TRACKS];   /* mk_tstate_t per track */
+static int   G_TPEND[MARK_TRACKS];    /* 1 rec pending, 2 play pending */
+static int   G_TPOS[MARK_TRACKS];     /* 0..127 through the loop */
+static int   G_UNDO = 0;              /* 0 none, 1 undo, 2 redo available */
+static int   g_track = 0;             /* the track B1/B2/J4/J5 act on */
+
+/* Trigger jacks, set in the callback, consumed at the 1 ms poll. */
+static volatile bool G_TRIG_REC  = false;
+static volatile bool G_TRIG_STOP = false;
+
+/* ---- colours (the RC-505's track colours) --------------------------------- */
+
+static constexpr LedPanel::Rgb kColRec    = {0xFF, 0x00, 0x00};
+static constexpr LedPanel::Rgb kColPlay   = {0x00, 0xFF, 0x00};
+static constexpr LedPanel::Rgb kColDub    = {0xFF, 0xC0, 0x00};
+static constexpr LedPanel::Rgb kColStop   = {0xC0, 0xC0, 0xC0};
+static constexpr LedPanel::Rgb kColEmpty  = {0x20, 0x20, 0x28};
+static constexpr LedPanel::Rgb kColTrack  = {0x40, 0xC0, 0xFF};
+static constexpr LedPanel::Rgb kColQuant  = {0x40, 0xFF, 0xC0};
+static constexpr LedPanel::Rgb kColRecAct = {0xFF, 0x80, 0x40};
+static constexpr LedPanel::Rgb kColDubMd  = {0xFF, 0xC0, 0x40};
+static constexpr LedPanel::Rgb kColPlayMd = {0x80, 0xFF, 0xFF};
+static constexpr LedPanel::Rgb kColTempo  = {0xFF, 0xC0, 0x40};
+static constexpr LedPanel::Rgb kColMaster = {0xFF, 0x40, 0xA0};
+static constexpr LedPanel::Rgb kColDim    = {0x18, 0x18, 0x18};
+static constexpr LedPanel::Rgb kColSetup  = {0x30, 0x10, 0x40};
+
+static constexpr LedPanel::Rgb kIdle   = {0x00, 0x00, 0x30};
+static constexpr LedPanel::Rgb kAmber  = {0xFF, 0x80, 0x00};
+static constexpr LedPanel::Rgb kRed    = {0xFF, 0x00, 0x00};
+static constexpr LedPanel::Rgb kGreen  = {0x00, 0xFF, 0x00};
+static constexpr LedPanel::Rgb kWhite  = {0xFF, 0xFF, 0xFF};
+static constexpr LedPanel::Rgb kGrey   = {0x60, 0x60, 0x60};
+static constexpr LedPanel::Rgb kBlue   = {0x00, 0x50, 0xFF};
+
+/* ---- labels (descriptor metadata; static storage, borrowed by pointer) -- */
+
+static const char* const kTrackLabels[5]  = {"1", "2", "3", "4", "5"};
+static const char* const kQuantLabels[5]  = {"Off", "Bar", "Beat", "8th", "16th"};
+static const char* const kRecActLabels[2] = {"Play", "Overdub"};
+static const char* const kDubLabels[2]    = {"Overdub", "Replace"};
+static const char* const kPlayLabels[2]   = {"Multi", "Single"};
+static const char* const kDryLabels[2]    = {"Through", "Muted"};
+static const char* const kRatioLabels[3]  = {"/2", "=1", "x2"};
+
+/* ---- rings ---------------------------------------------------------------- */
+
+/*
+ * Each LEVEL ring is its track's RC-505 display: the level as an arc in the
+ * track's state colour (red recording, green playing, yellow overdubbing,
+ * white stopped, near-dark empty), blinking while an action waits for the
+ * bar line, with a white playhead pip once around per loop pass. A custom
+ * ring rather than the SDK's Level style because the colour has to follow
+ * the state. The pot's catch pip is lost on these five; the PLAY page
+ * adopts the physical pots at boot so it rarely matters.
+ */
+static void TrackRing(LedPanel& panel, uint8_t pot, const ArcGeometry& geo,
+                      float norm, uint32_t t_ms, void* ctx)
+{
+    const int  ti   = (int)(uintptr_t)ctx;
+    const int  st   = G_TSTATE[ti];
+    const bool pend = G_TPEND[ti] != 0;
+
+    LedPanel::Rgb c;
+    switch (st)
+    {
+        case MK_REC:  c = kColRec;   break;
+        case MK_PLAY: c = kColPlay;  break;
+        case MK_DUB:  c = kColDub;   break;
+        case MK_STOP: c = kColStop;  break;
+        default:      c = kColEmpty; break;
+    }
+    if (pend && ((t_ms / 150u) & 1u)) c = kColDim;
+
+    if (norm < 0.0f) norm = 0.0f;
+    if (norm > 1.0f) norm = 1.0f;
+    int n = (int)lroundf(norm * (float)geo.arc_leds);
+    if (n < 1) n = 1;   /* a level of zero still shows the state */
+    for (int i = 0; i < n; i++)
+        panel.SetRingByHour(pot, fmodf(geo.start_hour + geo.step_hours * (float)i, 12.0f),
+                            panel.ScaleGlobal(c));
+
+    if (st == MK_PLAY || st == MK_DUB)
+    {
+        const float p    = (float)G_TPOS[ti] / 127.0f;
+        const float hour = geo.start_hour + geo.step_hours * p * (float)(geo.arc_leds - 1);
+        panel.SetRingByHour(pot, fmodf(hour, 12.0f), panel.ScaleGlobal(kWhite));
+    }
+}
+
+/* ---- pages --------------------------------------------------------------- */
+
+/* PLAY. Panel positions, front view:
+ *      [P1] B1 [P2]        tracks 1 and 2
+ *      [P3] B2 [P4]        tracks 3 and 4
+ *      [P5] B3 [P6]        track 5, TRACK select                          */
+
+static VirtualKnob lvl1 = VirtualKnob(kPotTopLeft, "Track 1")
+    .Linear(0.f, 100.f).Ident("t1_level").Unit("%")
+    .Ring(Custom(TrackRing, (void*)(uintptr_t)0));
+
+static VirtualKnob lvl2 = VirtualKnob(kPotTopRight, "Track 2")
+    .Linear(0.f, 100.f).Ident("t2_level").Unit("%")
+    .Ring(Custom(TrackRing, (void*)(uintptr_t)1));
+
+static VirtualKnob lvl3 = VirtualKnob(kPotMiddleLeft, "Track 3")
+    .Linear(0.f, 100.f).Ident("t3_level").Unit("%")
+    .Ring(Custom(TrackRing, (void*)(uintptr_t)2));
+
+static VirtualKnob lvl4 = VirtualKnob(kPotMiddleRight, "Track 4")
+    .Linear(0.f, 100.f).Ident("t4_level").Unit("%")
+    .Ring(Custom(TrackRing, (void*)(uintptr_t)3));
+
+static VirtualKnob lvl5 = VirtualKnob(kPotBottomLeft, "Track 5")
+    .Linear(0.f, 100.f).Ident("t5_level").Unit("%")
+    .Ring(Custom(TrackRing, (void*)(uintptr_t)4));
+
+static VirtualKnob track = VirtualKnob(kPotBottomRight, "Track")
+    .Selector(5).Labels(kTrackLabels).Ident("track")
+    .Ring(SelectorRing(kColTrack, kColDim, 5));
+
+/* SETUP: hold B3. The RC's system settings. */
+
+static VirtualKnob quant = VirtualKnob(kPotTopLeft, "Quantize")
+    .Selector(5).Labels(kQuantLabels).Ident("quantize")
+    .Ring(SelectorRing(kColQuant, kColDim, 5));
+
+static VirtualKnob recact = VirtualKnob(kPotTopRight, "Rec ->")
+    .Selector(2).Labels(kRecActLabels).Ident("rec_action")
+    .Ring(SelectorRing(kColRecAct, kColDim, 2));
+
+static VirtualKnob dubmode = VirtualKnob(kPotMiddleLeft, "Dub")
+    .Selector(2).Labels(kDubLabels).Ident("dub_mode")
+    .Ring(SelectorRing(kColDubMd, kColDim, 2));
+
+static VirtualKnob playmode = VirtualKnob(kPotMiddleRight, "Play")
+    .Selector(2).Labels(kPlayLabels).Ident("play_mode")
+    .Ring(SelectorRing(kColPlayMd, kColDim, 2));
+
+static VirtualKnob tempo = VirtualKnob(kPotBottomLeft, "Tempo")
+    .Linear(50.f, 200.f).Ident("tempo").Unit("BPM")
+    .Ring(Level(kColTempo));
+
+static VirtualKnob master = VirtualKnob(kPotBottomRight, "Master")
+    .Linear(0.f, 200.f).Ident("master").Unit("%")
+    .Ring(Level(kColMaster));
+
+static Page play_page = Page(kPagePlay).Name("Play").Color("#40ff80")
+    .Knobs(lvl1, lvl2, lvl3, lvl4, lvl5, track);
+
+static Page setup_page = Page(kPageSetup).Name("Setup").Color("#c060ff")
+    .Knobs(quant, recact, dubmode, playmode, tempo, master);
+
+/* ---- descriptor metadata -------------------------------------------------- */
+
+static Jack jk_in_l   ("J1",  "In L",       JackSig::AudioIn);
+static Jack jk_in_r   ("J2",  "In R",       JackSig::AudioIn);
+static Jack jk_clk    ("J3",  "Clock",      JackSig::Trig);
+static Jack jk_rec    ("J4",  "Rec",        JackSig::Trig);
+static Jack jk_stop   ("J5",  "Stop",       JackSig::Trig);
+static Jack jk_cv_trk ("J6",  "CV Track",   JackSig::CvBi);
+static Jack jk_cv_l1  ("J7",  "CV Level 1", JackSig::CvBi);
+static Jack jk_cv_l2  ("J8",  "CV Level 2", JackSig::CvBi);
+static Jack jk_out_l  ("J9",  "Out L",      JackSig::AudioOut);
+static Jack jk_out_r  ("J10", "Out R",      JackSig::AudioOut);
+
+static VirtualButton bt_track = VirtualButton("b1", "Rec / Play")
+    .Action("Tap", "Record, then play, then overdub, on the selected track")
+    .Action("Hold", "Undo the last recording or overdub; hold again to redo")
+    .Action("Hold 2 s", "Clear the selected track");
+
+static VirtualButton bt_stop = VirtualButton("b2", "Stop")
+    .Action("Tap", "Stop the selected track")
+    .Action("Hold", "All start / stop");
+
+static VirtualButton bt_setup = VirtualButton("b3", "Setup")
+    .Action("Hold", "Show the Setup page");
+
+static Manual manual = Manual()
+    .Tagline("Five-track live looper, RC-505 style")
+    .Preamble(
+        "**Mark** is five loop tracks under one pair of buttons. Pick a track "
+        "with the TRACK pot, tap B1 to record, tap again to play, again to "
+        "overdub; B2 stops it. The five rings are the five tracks: red "
+        "recording, green playing, yellow overdubbing, white stopped, with "
+        "a playhead running round each. With nothing on J3 the first loop "
+        "you record sets the bar, and TEMPO only tells Mark how many bars it "
+        "was; with a clock on J3 every loop snaps to it. Hold B3 for the "
+        "Setup page: quantize grid, what recording ends in, overdub or "
+        "replace, single-track sections, tempo and master level.");
+
+/* ---- surfaces ------------------------------------------------------------ */
+
+static ControlLoop loop(hw);
+static Pager       pager = Pager(kNumAppPages, kNumPots)
+                               .Shift(hw.buttons[kButtonB3], kPageSetup);
+static Presets     presets(hw.seed.qspi);
+static Settings    settings(hw, &pager);
+static CvMatrix    cv_matrix(kNumCvInputs);
+static SdCard      sd;
+static hostlink::FsExtension fs_ext(sd);
+static hostlink::Host host(presets, "mark_alchemy", "Mark",
+                           MARK_VERSION, MARK_GIT_HASH);
+static MarkExtras    extras;
+static SelectorHandle dry_input, clock_ratio;
+
+#ifdef MARK_BENCH_USB
+/* HostLink on the Seed's own micro-USB instead of the front panel, for the
+ * bench-bootloader setup where the front port is not serving anything. */
+static daisy::UsbHandle          bench_usb;
+static hostlink::CdcUsbTransport bench_cdc;
+#endif
+
+/* ---- host shim (the entire host surface mark_core needs) ---------------- */
+
+static float g_free_bpm = 120.0f;
+static float host_get_bpm(void) { return g_free_bpm; }
+
+/* ---- parameter dispatch ------------------------------------------------- */
+
+/*
+ * The engine takes strings, so a parameter is only sent when its quantized
+ * value actually changes. Stepped ones also need hysteresis: a pot parked on
+ * a step boundary would otherwise chatter across it on ADC noise, and a
+ * TRACK select that chatters sends the next tap to the wrong loop. The SDK
+ * leaves zone-commit debouncing to the app (docs/pages-and-layers.md).
+ */
+#define HYST 0.02f /* ~2% of travel */
+
+struct Knob
+{
+    const char* key;      /* engine parameter, or nullptr for a local one */
+    int         lo, hi;   /* inclusive integer range */
+    bool        zones;    /* floor(norm * N), matching the SDK's selector
+                             rings, else nearest */
+    float       dead;     /* deadband in normalised units; 0 = none */
+    int         last      = -32768;   /* -32768 = never dispatched */
+    float       last_norm = 0.0f;
+};
+
+static Knob k_lvl[MARK_TRACKS] = {
+    {"t1_level", 0, 100, false, 0.0f},
+    {"t2_level", 0, 100, false, 0.0f},
+    {"t3_level", 0, 100, false, 0.0f},
+    {"t4_level", 0, 100, false, 0.0f},
+    {"t5_level", 0, 100, false, 0.0f},
+};
+static Knob k_track  {nullptr,      0,   4, true,  HYST};
+static Knob k_quant  {nullptr,      0,   4, true,  HYST};
+static Knob k_recact {"rec_action", 0,   1, true,  HYST};
+static Knob k_dub    {"dub_mode",   0,   1, true,  HYST};
+static Knob k_play   {"play_mode",  0,   1, true,  HYST};
+static Knob k_master {"master",     0, 200, false, 0.0f};
+
+static int knob_quantize(const Knob& k, float norm)
+{
+    const int span = k.hi - k.lo;
+    int       v;
+    if (k.zones)
+    {
+        v = (int)(norm * (float)(span + 1));
+        if (v > span) v = span;
+    }
+    else
+    {
+        v = (int)(norm * (float)span + 0.5f);
+    }
+    if (v < 0)    v = 0;
+    if (v > span) v = span;
+    return k.lo + v;
+}
+
+/* True, with *out set, when the quantized value moved far enough to count. */
+static bool knob_changed(Knob& k, float norm, int* out)
+{
+    if (norm < 0.0f) norm = 0.0f;
+    if (norm > 1.0f) norm = 1.0f;
+    const int v = knob_quantize(k, norm);
+    if (v == k.last) return false;
+    if (k.dead > 0.0f && k.last != -32768)
+    {
+        const float moved = fabsf(norm - k.last_norm);
+        if (moved < k.dead) return false;
+    }
+    k.last      = v;
+    k.last_norm = norm;
+    *out        = v;
+    return true;
+}
+
+static void set_param_int(const char* key, int v)
+{
+    char b[16];
+    snprintf(b, sizeof b, "%d", v);
+    mark_set_param(M, key, b);
+}
+
+static bool dispatch(Knob& k, float norm)
+{
+    int v;
+    if (!knob_changed(k, norm, &v)) return false;
+    if (k.key) set_param_int(k.key, v);
+    return true;
+}
+
+/* A gesture on the selected track: "t<n>_btn", "t<n>_stop", "t<n>_clear". */
+static void track_gesture(const char* what)
+{
+    char key[24];
+    snprintf(key, sizeof key, "t%d_%s", g_track + 1, what);
+    mark_set_param(M, key, "1");
+}
+
+/* ---- gate jacks: J3 clock, J4 record, J5 stop ------------------------------ */
+
+/*
+ * Read as raw ADC in the audio callback, not through the SDK's
+ * AnalogControl: that path is low-passed at ~20 Hz for pots, which would
+ * smear a millisecond pulse into nothing. The board's calibration record
+ * gives each jack's 0 V code and the ADC reference, so the thresholds are
+ * in volts. The deviation MAGNITUDE is thresholded, so a pulse fires
+ * whichever way the ADC counts -- the sign of the front end is documented
+ * (higher code = more negative jack volts) but not verified here.
+ */
+struct GateIn
+{
+    uint8_t  jack;
+    uint16_t zero  = 32768u;
+    int      hi    = 4915;   /* +1.5 V at VDDA 3.30: assert  */
+    int      lo    = 1638;   /* +0.5 V:               release */
+    bool     state = false;
+
+    void Calibrate(const V2Calibration& cal, float vdda)
+    {
+        uint16_t z = cal.jack[jack].adc_zero_code;
+        if (z < 20000u || z > 45000u) z = 32768u;   /* design mid-scale */
+        const float cpv = kV2CvInGainDesign * 65535.0f / vdda;  /* counts per volt */
+        zero = z;
+        hi   = (int)(1.5f * cpv);
+        lo   = (int)(0.5f * cpv);
+    }
+
+    /* True on the rising edge. */
+    inline bool Poll()
+    {
+        const uint16_t raw = hw.seed.adc.Get(kCvAdcOffset + jack);
+        int            dev = (int)zero - (int)raw;
+        if (dev < 0) dev = -dev;
+        if (!state)
+        {
+            if (dev > hi) { state = true; return true; }
+        }
+        else if (dev < lo) state = false;
+        return false;
+    }
+};
+
+static GateIn g_clk  {kClockJack};
+static GateIn g_rec  {kRecJack};
+static GateIn g_stop {kStopJack};
+
+static void gates_calibrate(void)
+{
+    const V2Calibration& cal = hw.Calibration();
+    float vdda = cal.vdda_at_cal;
+    if (!(vdda > 2.5f && vdda < 3.6f)) vdda = kV2VddaDesign;
+    g_clk.Calibrate(cal, vdda);
+    g_rec.Calibrate(cal, vdda);
+    g_stop.Calibrate(cal, vdda);
+}
+
+/*
+ * Clock feed. The adapter free-runs when nothing is patched (Smack wants
+ * that), but Mark does not: with no clock, the first loop you record IS the
+ * bar, and TEMPO only says how many bars it was (mark_core.c schedule /
+ * finalize_record). So the engine only hears the adapter after a pulse has
+ * arrived on J3, and hears a MIDI Stop when the adapter loses the pulse
+ * train, after which it free-runs again on its own grid.
+ */
+static volatile bool g_clk_feed   = false;
+static bool          g_was_locked = false;
+
+static void emit_to_engine(void* ctx, uint8_t byte)
+{
+    if (g_clk_feed) mark_on_midi((mark_t*)ctx, &byte, 1, 3); /* source 3 = host */
+}
+
+/* ---- buttons (1 ms poll) -------------------------------------------------- */
+
+/*
+ * B1 is the RC's [REC/PLAY] for the selected track, B2 its [STOP]:
+ *
+ *   B1 tap                 record -> play -> overdub -> play ...
+ *   B1 hold  > 600 ms      undo / redo the last recording or overdub
+ *   B1 hold  > 2000 ms     clear the track (fires while held)
+ *   B2 tap                 stop the track
+ *   B2 hold  > 600 ms      ALL start / stop (fires while held)
+ *
+ * Taps act on RELEASE, so a hold never fires the tap first; the cost is a
+ * release-time delay on the first loop's downbeat, which the grid then
+ * carries consistently. Edges come from Pressed(), not RisingEdge() (see
+ * smack-versio's note on the debouncer's own edge flag at a 1 ms poll).
+ */
+#define UNDO_PRESS_MS  600u
+#define CLEAR_PRESS_MS 2000u
+#define ALL_PRESS_MS   600u
+
+struct Press
+{
+    bool     down  = false;
+    bool     fired = false;   /* a hold action already fired; release is inert */
+    uint32_t t0    = 0;
+};
+
+static Press b1, b2;
+
+static void OnPoll(uint32_t now)
+{
+    if (settings.IsActive())
+    {
+        b1.down = b2.down = false;
+        G_TRIG_REC = G_TRIG_STOP = false;
+        return;
+    }
+
+    /* Trigger jacks, consumed here so set_param never runs in the callback. */
+    if (G_TRIG_REC)  { G_TRIG_REC  = false; track_gesture("btn");  }
+    if (G_TRIG_STOP) { G_TRIG_STOP = false; track_gesture("stop"); }
+
+    /* B1 */
+    {
+        const bool pressed = hw.buttons[kButtonB1].Pressed();
+        if (pressed && !b1.down) { b1.down = true; b1.fired = false; b1.t0 = now; }
+        const uint32_t held = now - b1.t0;
+        if (b1.down && pressed && !b1.fired && held > CLEAR_PRESS_MS)
+        {
+            track_gesture("clear");
+            b1.fired = true;
+        }
+        if (b1.down && !pressed)
+        {
+            b1.down = false;
+            if (!b1.fired)
+            {
+                if (held > UNDO_PRESS_MS) mark_set_param(M, "undo", "1");
+                else                      track_gesture("btn");
+            }
+        }
+    }
+
+    /* B2 */
+    {
+        const bool pressed = hw.buttons[kButtonB2].Pressed();
+        if (pressed && !b2.down) { b2.down = true; b2.fired = false; b2.t0 = now; }
+        const uint32_t held = now - b2.t0;
+        if (b2.down && pressed && !b2.fired && held > ALL_PRESS_MS)
+        {
+            mark_set_param(M, "all_btn", "1");
+            b2.fired = true;
+        }
+        if (b2.down && !pressed)
+        {
+            b2.down = false;
+            if (!b2.fired) track_gesture("stop");
+        }
+    }
+}
+
+/* ---- control frame (~60 Hz) ------------------------------------------------ */
+
+static bool     g_dirty       = false;
+static uint32_t g_dirty_since = 0;
+static float    g_saved_peak  = 0.0f;
+static bool     prev_settings = false;
+static int      applied_dry   = -1;
+static int      applied_ratio = -1;
+static float    applied_bpm   = 0.0f;
+
+static void mark_dirty(uint32_t now)
+{
+    g_dirty       = true;
+    g_dirty_since = now;
+}
+
+/* "a,b,c,d,e" -> five ints. */
+static void read_csv5(const char* key, int* out)
+{
+    char buf[64];
+    if (mark_get_param(M, key, buf, sizeof buf) <= 0) return;
+    const char* p = buf;
+    for (int i = 0; i < MARK_TRACKS; i++)
+    {
+        char* end;
+        out[i] = (int)strtol(p, &end, 10);
+        if (*end != ',') break;
+        p = end + 1;
+    }
+}
+
+static void OnFrame(void)
+{
+    const uint32_t now = System::GetNow();
+    int            v;
+
+    /* PLAY page. Values are catch + locks + CV, already mixed by the SDK. */
+    dispatch(k_lvl[0], lvl1.Norm());
+    dispatch(k_lvl[1], lvl2.Norm());
+    dispatch(k_lvl[2], lvl3.Norm());
+    dispatch(k_lvl[3], lvl4.Norm());
+    dispatch(k_lvl[4], lvl5.Norm());
+    if (knob_changed(k_track, track.Norm(), &v)) g_track = v;
+
+    /* SETUP page. These are worth a flash write when they move. */
+    if (knob_changed(k_quant, quant.Norm(), &v))
+    {
+        /* Zone 0 is off; zones 1..4 are the engine's rec_grid 0..3. */
+        set_param_int("quantize", v > 0 ? 1 : 0);
+        if (v > 0) set_param_int("rec_grid", v - 1);
+        mark_dirty(now);
+    }
+    if (dispatch(k_recact, recact.Norm())) mark_dirty(now);
+    if (dispatch(k_dub,    dubmode.Norm())) mark_dirty(now);
+    if (dispatch(k_play,   playmode.Norm())) mark_dirty(now);
+    if (dispatch(k_master, master.Norm())) mark_dirty(now);
+
+    /* TEMPO: the free-run tempo. With a clock on J3 it is the adapter's
+     * fallback only; unclocked it is what the engine divides the first loop
+     * by to find the bar. */
+    {
+        const float bpm = tempo.Value();
+        if (fabsf(bpm - applied_bpm) >= 0.5f)
+        {
+            applied_bpm = bpm;
+            g_free_bpm  = bpm;
+            clk_set_free_bpm(&CLK, bpm);
+            set_param_int("bpm_override", (int)lroundf(bpm));
+            mark_dirty(now);
+        }
+    }
+
+    /* Settings: dry input through or muted; clock ratio. */
+    {
+        const int d = (int)dry_input.Value();
+        if (d != applied_dry)
+        {
+            applied_dry = d;
+            set_param_int("monitor", d ? 0 : 1);
+        }
+        const int r = (int)clock_ratio.Value();
+        if (r != applied_ratio)
+        {
+            static const int ticks[3] = {CLK_TICKS_DIV2, CLK_TICKS_1X, CLK_TICKS_2X};
+            applied_ratio = r;
+            clk_set_ratio(&CLK, ticks[r < 0 ? 1 : (r > 2 ? 2 : r)]);
+        }
+    }
+
+    /* Engine readbacks. mark_get_param is an snprintf -- fine at frame rate,
+     * never in the callback. */
+    read_csv5("tstates", G_TSTATE);
+    read_csv5("tpend",   G_TPEND);
+    read_csv5("tpos",    G_TPOS);
+    {
+        char buf[16];
+        if (mark_get_param(M, "undo_avail", buf, sizeof buf) > 0) G_UNDO = atoi(buf);
+    }
+
+    /* Worst block this session. Clamped: an overrunning callback can report
+     * over 100%, and the readout wants 0..1. */
+    {
+        float mx = cpu.GetMaxCpuLoad();
+        if (mx > 1.0f) mx = 1.0f;
+        if (mx > extras.cpu_peak) extras.cpu_peak = mx;
+        if (extras.cpu_peak > g_saved_peak + 0.05f) mark_dirty(now);
+    }
+
+    /* A visit to Settings is worth saving (brightness, dry input, ratio). */
+    const bool sact = settings.IsActive();
+    if (prev_settings && !sact) mark_dirty(now);
+    prev_settings = sact;
+
+    /*
+     * Autosave slot 0, the working state, a few seconds after the last
+     * change and only with hands off: Save() erases the sectors the record
+     * covers (one, for this payload) from this thread, and the 1 ms button
+     * poll is paused for the duration. Loop audio is never saved; this is
+     * the Setup page and the settings screen.
+     */
+    if (g_dirty && now - g_dirty_since >= 5000u && !sact && !picker::Busy()
+        && !hw.buttons[kButtonB1].Pressed() && !hw.buttons[kButtonB2].Pressed()
+        && !hw.buttons[kButtonB3].Pressed())
+    {
+        presets.Save(0);
+        g_dirty      = false;
+        g_saved_peak = extras.cpu_peak;
+    }
+}
+
+/* ---- LEDs ------------------------------------------------------------------ */
+
+/*
+ * The SDK draws the rings from the knobs (the five LEVEL rings through
+ * TrackRing above). What is added:
+ *   B1 pair   the selected track's state colour, blinking while pending;
+ *             white for a frame when undo is available and B1 is held past
+ *             the undo threshold, so you know before you let go
+ *   B2 pair   CLOCK: blue locked to J3, grey free-running,
+ *             red when the audio callback is above 80%
+ *   B3 pair   dim Setup tint (the SDK paints it while the page is held)
+ *   P1 ring at boot  the previous session's worst CPU load, for 2.5 s
+ */
+static uint32_t g_readout_until = 0;
+static float    g_boot_peak     = 0.0f;
+
+static void paint_fill(uint8_t pot, float frac, const LedPanel::Rgb& c)
+{
+    const ArcGeometry& geo = hw.Arc();
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    const int n = (int)lroundf(frac * (float)geo.arc_leds);
+    for (int i = 0; i < n; i++)
+        hw.leds.SetRingByHour(pot, fmodf(geo.start_hour + geo.step_hours * (float)i, 12.0f),
+                              hw.leds.ScaleGlobal(c));
+}
+
+static void OnRender(uint32_t t_ms)
+{
+    LedPanel& L = hw.leds;
+
+    if (t_ms < g_readout_until)
+    {
+        L.ClearRing(kPotTopLeft);
+        if (g_boot_peak <= 0.0f)
+        {
+            /* No data: first boot after a flash. Distinct from "measured,
+             * and low" so the two never get confused. */
+            L.SetRingByHour(kPotTopLeft, hw.Arc().start_hour, L.ScaleGlobal(kIdle));
+        }
+        else
+        {
+            const LedPanel::Rgb c = g_boot_peak >= 0.90f ? kRed
+                                  : g_boot_peak >= 0.75f ? kAmber
+                                                         : kGreen;
+            paint_fill(kPotTopLeft, g_boot_peak, c);
+        }
+    }
+
+    if (settings.IsActive()) return;   /* Settings owns the buttons */
+
+    LedPanel::Rgb st;
+    switch (G_TSTATE[g_track])
+    {
+        case MK_REC:  st = kColRec;  break;
+        case MK_PLAY: st = kColPlay; break;
+        case MK_DUB:  st = kColDub;  break;
+        case MK_STOP: st = kColStop; break;
+        default:      st = kIdle;    break;
+    }
+    if (G_TPEND[g_track] && ((t_ms / 150u) & 1u)) st = kColDim;
+    if (b1.down && !b1.fired && G_UNDO && (t_ms - b1.t0) > UNDO_PRESS_MS) st = kWhite;
+    L.SetButtonPair(kButtonB1, L.ScaleGlobal(st));
+
+    LedPanel::Rgb ck;
+    if (cpu.GetAvgCpuLoad() > 0.80f) ck = kRed;
+    else if (clk_locked(&CLK))       ck = kBlue;
+    else                             ck = kGrey;
+    L.SetButtonPair(kButtonB2, L.ScaleGlobal(ck));
+
+    if (pager.Page() != kPageSetup)
+        L.SetButtonPair(kButtonB3, L.ScaleGlobal(kColSetup));
+}
+
+/* ---- audio ----------------------------------------------------------------- */
+
+static int16_t bufi[kBlockSize * 2];
+
+static inline int16_t f2i(float v)
+{
+    if (v > 0.999969f) v = 0.999969f;
+    if (v < -1.0f)     v = -1.0f;
+    return (int16_t)(v * 32767.0f);
+}
+
+static void AudioCallback(daisy::AudioHandle::InputBuffer  in,
+                          daisy::AudioHandle::OutputBuffer out,
+                          size_t                           size)
+{
+    cpu.OnBlockStart();
+
+    /* Controls are NOT read here; set_param stays on the control thread.
+     * What is per-block: the three gate jacks need frame-accurate edges,
+     * and the clock advance is what the engine's grid is built on. */
+    if (g_clk.Poll())
+    {
+        g_clk_feed = true;      /* before the edge, so its Start gets through */
+        clk_gate_edge(&CLK);
+    }
+    if (g_rec.Poll())  G_TRIG_REC  = true;
+    if (g_stop.Poll()) G_TRIG_STOP = true;
+
+    clk_advance(&CLK, (int)size, emit_to_engine, M);
+
+    const bool locked = clk_locked(&CLK) != 0;
+    if (g_was_locked && !locked)
+    {
+        /* The pulse train stopped: tell the engine, then stop feeding it the
+         * adapter's free-run ticks. It falls back to its own grid. */
+        const uint8_t stop = 0xFC;
+        mark_on_midi(M, &stop, 1, 3);
+        g_clk_feed = false;
+    }
+    g_was_locked = locked;
+
+    /* Refuse to run rather than corrupt memory if the block is ever not what
+     * Init() asked for. */
+    if (size > kBlockSize)
+    {
+        for (size_t i = 0; i < size; i++)
+        {
+            out[0][i] = in[0][i];
+            out[1][i] = in[1][i];
+        }
+        cpu.OnBlockEnd();
+        return;
+    }
+
+    /* float -1..1 -> interleaved int16, which is what the engine takes.
+     * Converting at the boundary keeps the engine bit-identical to the Move
+     * build, so any difference in sound is a shim bug. The engine mixes the
+     * dry input into its output itself (monitor), so nothing is blended here. */
+    for (size_t i = 0; i < size; i++)
+    {
+        bufi[2 * i]     = f2i(in[0][i]);
+        bufi[2 * i + 1] = f2i(in[1][i]);
+    }
+
+    mark_process(M, bufi, bufi, (int)size);
+
+    const float k = 1.0f / 32768.0f;
+    for (size_t i = 0; i < size; i++)
+    {
+        out[0][i] = (float)bufi[2 * i] * k;
+        out[1][i] = (float)bufi[2 * i + 1] * k;
+    }
+
+    cpu.OnBlockEnd();
+}
+
+/* ---- boot ------------------------------------------------------------------ */
+
+static void fault_forever(void)
+{
+    /* Refuse to run half-initialised: every button pair red, no audio. */
+    for (;;)
+    {
+        hw.leds.Clear();
+        for (uint8_t b = 0; b < kNumButtons; b++)
+            hw.leds.SetButtonPair(b, {0x80, 0x00, 0x00});
+        hw.leds.Show();
+        System::Delay(200);
+    }
+}
+
+int main(void)
+{
+    hw.Init(daisy::SaiHandle::Config::SampleRate::SAI_48KHZ, kBlockSize);
+    cpu.Init(hw.SampleRate(), (int)hw.BlockSize());
+    versio_alloc_init(g_pool, VERSIO_POOL_BYTES);
+    gates_calibrate();
+
+    memset(&HOST, 0, sizeof HOST);
+    HOST.api_version      = 1;
+    HOST.sample_rate      = MARK_SR;
+    HOST.frames_per_block = kBlockSize;
+    HOST.get_bpm          = host_get_bpm;
+    clk_init(&CLK, MARK_SR, 120.0f);
+    clk_set_mode(&CLK, CLK_EXTERNAL);   /* a pulse on J3 is always a clock */
+
+    /* mark_create, not mark_create_in_dir: no module directory means no FX
+     * catalogue scan and no loader thread is ever attempted. */
+    M = mark_create(&HOST);
+    if (!M || versio_alloc_failed()) fault_forever();
+
+    /* Dry input passes to the output (the RC does the same); the Move's
+     * feedback guard has no microphone here to protect. */
+    mark_set_param(M, "monitor",  "1");
+    mark_set_param(M, "hw_input", "1");
+    mark_set_param(M, "follow",   "0");
+
+    /* Storage + settings. sd.Init() registers the SDRAM volume; no card I/O
+     * until something opens it. */
+    sd.Init();
+    picker::Install(settings, kSettingsFirmware, sd, hw);
+    settings.UseBrightness();
+    settings.UsePresets(presets);
+    dry_input = settings.Page(kSettingsMain).Pot(1)
+        .Selector(kDryLabels).Default(0)
+        .Ident("dry").Name("Dry Input")
+        .Help("**Through** mixes what comes in on J1/J2 into the output, as "
+              "the RC-505 does. **Muted** outputs the loops only, for a mixer "
+              "that already has the dry signal.");
+    clock_ratio = settings.Page(kSettingsMain).Pot(4)
+        .Selector(kRatioLabels).Default(1)
+        .Ident("clk.ratio").Name("Clock Ratio")
+        .Help("What one pulse on J3 is worth: a half note, a quarter note, "
+              "or an eighth.");
+
+    /* CV: J3-J5 are gates (read raw in the callback), the rest modulate. */
+    cv_matrix.Jack(0).Off();
+    cv_matrix.Jack(1).Off();
+    cv_matrix.Jack(2).Off();
+    cv_matrix.Jack(3).To(track);
+    cv_matrix.Jack(4).To(lvl1);
+    cv_matrix.Jack(5).To(lvl2);
+
+    /* HostLink: identity, descriptor, SD file access. The transport is the
+     * front USB-C unless this is a bench build. Must all be declared before
+     * BootLoad(), which is where the host starts. */
+    host.Product("Mark")
+        .Pages(play_page, setup_page)
+        .Jacks(jk_in_l, jk_in_r, jk_clk, jk_rec, jk_stop, jk_cv_trk,
+               jk_cv_l1, jk_cv_l2, jk_out_l, jk_out_r)
+        .Buttons(bt_track, bt_stop, bt_setup)
+        .Attach(manual)
+        .Extend(fs_ext);
+#ifdef MARK_BENCH_USB
+    bench_cdc.Init(bench_usb, daisy::UsbHandle::FS_INTERNAL, "Mark (bench)");
+    host.Transport(bench_cdc);
+#endif
+
+    /* Preset payload: both pages, the settings screen, and the extras. */
+    presets.Manage(pager);
+    presets.Manage(settings);
+    presets.Manage(extras);
+    presets.Init();
+    const bool had_boot = presets.HasValid(0);
+    presets.BootLoad();
+
+    /* Physical pot positions, primed. */
+    float phys[kNumPots];
+    for (int i = 0; i < 8; i++)
+    {
+        hw.ProcessAllControls();
+        System::Delay(1);
+    }
+    for (uint8_t p = 0; p < kNumPots; p++) phys[p] = hw.pots[p].Value();
+
+    if (!had_boot)
+    {
+        /* First boot after a flash: the RC's defaults. Zone i of N sits at
+         * (i + 0.5) / N. */
+        pager.SetStored(kPageSetup, kPotTopLeft,     1.5f / 5.0f, phys); /* bar      */
+        pager.SetStored(kPageSetup, kPotTopRight,    0.25f,       phys); /* rec->play*/
+        pager.SetStored(kPageSetup, kPotMiddleLeft,  0.25f,       phys); /* overdub  */
+        pager.SetStored(kPageSetup, kPotMiddleRight, 0.25f,       phys); /* multi    */
+        pager.SetStored(kPageSetup, kPotBottomLeft,  70.0f / 150.0f, phys); /* 120 BPM */
+        pager.SetStored(kPageSetup, kPotBottomRight, 0.5f,        phys); /* 100 %    */
+    }
+
+    /* The PLAY page comes up honest: whatever a pot points at is what the
+     * module does, no catch to cross first. Setup keeps its stored values.
+     * BootLoad() left the Pager a deferred re-arm for its first Update();
+     * that only re-runs InitCatch against phys (pager.cpp LockPage) and
+     * never touches the stored values, so these survive it. */
+    for (uint8_t p = 0; p < kNumPots; p++)
+        pager.SetStored(kPagePlay, p, phys[p], phys);
+
+    /* Report last session's peak on the P1 ring, then start recording this
+     * one. Audio is already passing through during the readout. */
+    g_boot_peak      = extras.cpu_peak;
+    extras.cpu_peak  = 0.0f;
+    g_saved_peak     = 0.0f;
+    g_readout_until  = System::GetNow() + 2500u;
+
+    hw.StartAudio(AudioCallback);
+    cpu.Reset();
+
+    loop.Use(pager)
+        .Use(settings)
+        .Use(cv_matrix)
+        .Use(host)
+        .Use(play_page)
+        .Use(setup_page)
+        .OnFrame(OnFrame)
+        .OnPoll(OnPoll)
+        .OnRender(OnRender);
+
+    for (;;) loop.Tick();
+}
