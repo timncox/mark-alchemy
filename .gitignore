@@ -1,0 +1,4 @@
+build/
+build-bench/
+.DS_Store
+CLAUDE.md
