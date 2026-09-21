@@ -245,3 +245,11 @@ silicon; the boot bar will say.
    on five tracks at once (the boot bar will say).
 7. ⚠️ J6 moving the selection while a TRACK-page pot is in hand: the page
    reloads and the pot has to catch the new track's value. Intended; unfelt.
+8. A preset load pushes every track's TRACK-page values to the engine. If
+   the preset has REVERSE on for a track that is overdubbing at that moment,
+   the engine ends the overdub (✅ `mark_core.c` `rev` setter: the RC's rule,
+   applied on every set, not only on a change). A track can only enter
+   overdub while forward, so an unchanged value never triggers it; only a
+   preset that genuinely reverses the track does. Left as the engine's rule.
+   If a preset should never interrupt a live take, `sync_tracks` can hold
+   the `rev` push while `G_TSTATE[ti] == MK_DUB`. Raised in review 2026-09-21.
