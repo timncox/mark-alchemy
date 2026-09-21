@@ -5,16 +5,18 @@
 built on the [Alchemy SDK](https://github.com/hermetic-modular/alchemy-sdk).
 
 Same C engine as [schwung-mark](https://github.com/timncox/schwung-mark) for
-the Ableton Move, recompiled for six pots on two pages, three buttons, six
+the Ableton Move, recompiled for six pots on three pages, three buttons, six
 CV jacks and 102 LEDs. Five loop tracks of 55 seconds each in the module's
 SDRAM; pick a track, tap to record, tap to play, tap to overdub; the five
 rings are the five tracks' displays. With nothing on the clock jack the
 first loop you record is the bar; with a clock, everything snaps to it.
+Tap B3 for the selected track's own page: one-shot, reverse, an insert
+effect and its amount, pan.
 
-**Status: v0.1.0 builds and passes its native tests. Nothing has been heard
+**Status: builds and passes its native tests. Nothing has been heard
 yet.** See `DESIGN.md` for the control map, what is verified and what is
-not. The Move build's sessions, external FX modules, and per-track pan /
-reverse / one-shot / FX are not on this panel yet.
+not. The Move build's sessions and external FX modules are not on this
+panel.
 
 ## Build
 

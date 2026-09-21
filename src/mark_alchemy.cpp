@@ -13,6 +13,8 @@
  * file, the picker, the allocator, the autosave. See DESIGN.md.
  *
  *   PLAY   LEVEL 1-5 (each ring is that track's RC-505 display) · TRACK select
+ *   TRACK  the selected track's ONE-SHOT · REVERSE · FX · FX AMOUNT · PAN,
+ *          and TRACK select again on the same pot                  (tap B3)
  *   SETUP  QUANTIZE · REC-> · DUB · PLAY MODE · TEMPO · MASTER   (hold B3)
  *   B1     the selected track's REC/PLAY button: tap = record -> play ->
  *          overdub, hold = undo/redo, hold 2 s = clear
@@ -20,8 +22,7 @@
  *   J3     clock; J4 record trigger; J5 stop trigger; J6-J8 CV
  *   Settings (B2+B3 2 s): dry input, clock ratio; page 1 = the SD picker
  *
- * The Move's per-track pan / reverse / one-shot / track FX and its sessions
- * are not on this panel yet (v0.2 candidates); the engine still has them.
+ * The Move's sessions are not on this panel; the engine still has them.
  */
 #include <math.h>
 #include <stdint.h>
@@ -82,7 +83,7 @@ static constexpr uint8_t kClockJack = 0u;
 static constexpr uint8_t kRecJack   = 1u;
 static constexpr uint8_t kStopJack  = 2u;
 
-enum : uint8_t { kPagePlay = 0, kPageSetup = 1, kNumAppPages = 2 };
+enum : uint8_t { kPagePlay = 0, kPageSetup = 1, kPageTrack = 2, kNumAppPages = 3 };
 enum : uint8_t { kSettingsMain = 0, kSettingsFirmware = 1 };
 
 /* ---- hardware + engine -------------------------------------------------- */
@@ -128,6 +129,13 @@ static constexpr LedPanel::Rgb kColTempo  = {0xFF, 0xC0, 0x40};
 static constexpr LedPanel::Rgb kColMaster = {0xFF, 0x40, 0xA0};
 static constexpr LedPanel::Rgb kColDim    = {0x18, 0x18, 0x18};
 static constexpr LedPanel::Rgb kColSetup  = {0x30, 0x10, 0x40};
+static constexpr LedPanel::Rgb kColShot   = {0xFF, 0xFF, 0x60};
+static constexpr LedPanel::Rgb kColRev    = {0xFF, 0x60, 0x60};
+static constexpr LedPanel::Rgb kColFx     = {0xA0, 0x80, 0xFF};
+static constexpr LedPanel::Rgb kColFxAmt  = {0x80, 0x60, 0xFF};
+static constexpr LedPanel::Rgb kColPanR   = {0x40, 0xE0, 0xFF};
+static constexpr LedPanel::Rgb kColPanL   = {0xFF, 0xA0, 0x40};
+static constexpr LedPanel::Rgb kColTrkPg  = {0x50, 0x28, 0x08};   /* B3 on the TRACK page */
 
 static constexpr LedPanel::Rgb kIdle   = {0x00, 0x00, 0x30};
 static constexpr LedPanel::Rgb kAmber  = {0xFF, 0x80, 0x00};
@@ -146,6 +154,10 @@ static const char* const kDubLabels[2]    = {"Overdub", "Replace"};
 static const char* const kPlayLabels[2]   = {"Multi", "Single"};
 static const char* const kDryLabels[2]    = {"Through", "Muted"};
 static const char* const kRatioLabels[3]  = {"/2", "=1", "x2"};
+static const char* const kShotLabels[2]   = {"Loop", "One-shot"};
+static const char* const kRevLabels[2]    = {"Forward", "Reverse"};
+static const char* const kFxLabels[7]     = {"Off", "Low-pass", "High-pass", "Crush",
+                                             "Delay", "Phaser", "Ring mod"};
 
 /* ---- rings ---------------------------------------------------------------- */
 
@@ -189,6 +201,46 @@ static void TrackRing(LedPanel& panel, uint8_t pot, const ArcGeometry& geo,
         const float p    = (float)G_TPOS[ti] / 127.0f;
         const float hour = geo.start_hour + geo.step_hours * p * (float)(geo.arc_leds - 1);
         panel.SetRingByHour(pot, fmodf(hour, 12.0f), panel.ScaleGlobal(kWhite));
+    }
+}
+
+/*
+ * TRACK select on the TRACK page. The five LEVEL rings are out of sight
+ * there, so this one ring stands in for them: five dots across the arc (the
+ * SDK's Distributed selector geometry), each in its track's state colour,
+ * the selected one at full brightness and the rest at a quarter. It reads
+ * g_track rather than the pot, so it follows J6 as well.
+ */
+static void TrackSelectRing(LedPanel& panel, uint8_t pot, const ArcGeometry& geo,
+                            float /*norm*/, uint32_t t_ms, void* /*ctx*/)
+{
+    for (int i = 0; i < MARK_TRACKS; i++)
+    {
+        LedPanel::Rgb c;
+        switch (G_TSTATE[i])
+        {
+            case MK_REC:  c = kColRec;   break;
+            case MK_PLAY: c = kColPlay;  break;
+            case MK_DUB:  c = kColDub;   break;
+            case MK_STOP: c = kColStop;  break;
+            default:      c = kColEmpty; break;
+        }
+        if (G_TPEND[i] && ((t_ms / 150u) & 1u)) c = kColDim;
+        if (i == g_track)
+        {
+            /* An empty track's near-dark would hide the selection. */
+            if (G_TSTATE[i] != MK_REC && G_TSTATE[i] != MK_PLAY
+                && G_TSTATE[i] != MK_DUB && G_TSTATE[i] != MK_STOP)
+                c = kColTrack;
+        }
+        else
+        {
+            c = {(uint8_t)(c.r / 4u), (uint8_t)(c.g / 4u), (uint8_t)(c.b / 4u)};
+        }
+        const int led = (int)lroundf((float)i * (float)(geo.arc_leds - 1)
+                                     / (float)(MARK_TRACKS - 1));
+        panel.SetRingByHour(pot, fmodf(geo.start_hour + geo.step_hours * (float)led, 12.0f),
+                            panel.ScaleGlobal(c));
     }
 }
 
@@ -249,11 +301,45 @@ static VirtualKnob master = VirtualKnob(kPotBottomRight, "Master")
     .Linear(0.f, 200.f).Ident("master").Unit("%")
     .Ring(Level(kColMaster));
 
+/* TRACK: tap B3. What the engine keeps per track and the PLAY page has no
+ * room for, shown for the selected track. The Pager holds one value per
+ * (page, pot), so these five are reloaded from the extras whenever the
+ * selection moves (sync_tracks / load_track_page below). P6 is TRACK select
+ * again, on the pot it has on the PLAY page, so picking a track never costs
+ * a page change; the two stored values are kept equal in OnFrame. */
+
+static VirtualKnob trk_shot = VirtualKnob(kPotTopLeft, "One-shot")
+    .Selector(2).Labels(kShotLabels).Ident("trk_shot")
+    .Ring(SelectorRing(kColShot, kColDim, 2));
+
+static VirtualKnob trk_rev = VirtualKnob(kPotTopRight, "Reverse")
+    .Selector(2).Labels(kRevLabels).Ident("trk_rev")
+    .Ring(SelectorRing(kColRev, kColDim, 2));
+
+static VirtualKnob trk_fx = VirtualKnob(kPotMiddleLeft, "FX")
+    .Selector(7).Labels(kFxLabels).Ident("trk_fx")
+    .Ring(SelectorRing(kColFx, kColDim, 7));
+
+static VirtualKnob trk_fxamt = VirtualKnob(kPotMiddleRight, "FX Amount")
+    .Linear(0.f, 100.f).Ident("trk_fxp").Unit("%")
+    .Ring(Level(kColFxAmt));
+
+static VirtualKnob trk_pan = VirtualKnob(kPotBottomLeft, "Pan")
+    .Linear(-50.f, 50.f).Ident("trk_pan")
+    .Ring(Bipolar(kColPanR, kColPanL, kWhite));
+
+static VirtualKnob trk_sel = VirtualKnob(kPotBottomRight, "Track")
+    .Selector(5).Labels(kTrackLabels).Ident("trk_track")
+    .Ring(Custom(TrackSelectRing));
+
 static Page play_page = Page(kPagePlay).Name("Play").Color("#40ff80")
     .Knobs(lvl1, lvl2, lvl3, lvl4, lvl5, track);
 
 static Page setup_page = Page(kPageSetup).Name("Setup").Color("#c060ff")
     .Knobs(quant, recact, dubmode, playmode, tempo, master);
+
+static Page track_page = Page(kPageTrack).Name("Track").Color("#ff9030")
+    .Knobs(trk_shot, trk_rev, trk_fx, trk_fxamt, trk_pan, trk_sel);
 
 /* ---- descriptor metadata -------------------------------------------------- */
 
@@ -277,7 +363,8 @@ static VirtualButton bt_stop = VirtualButton("b2", "Stop")
     .Action("Tap", "Stop the selected track")
     .Action("Hold", "All start / stop");
 
-static VirtualButton bt_setup = VirtualButton("b3", "Setup")
+static VirtualButton bt_setup = VirtualButton("b3", "Setup / Track")
+    .Action("Tap", "Switch between the Play page and the Track page")
     .Action("Hold", "Show the Setup page");
 
 static Manual manual = Manual()
@@ -291,7 +378,11 @@ static Manual manual = Manual()
         "you record sets the bar, and TEMPO only tells Mark how many bars it "
         "was; with a clock on J3 every loop snaps to it. Hold B3 for the "
         "Setup page: quantize grid, what recording ends in, overdub or "
-        "replace, single-track sections, tempo and master level.");
+        "replace, single-track sections, tempo and master level. Tap B3 for "
+        "the Track page, which belongs to the selected track: one-shot, "
+        "reverse, an insert effect and its amount, and pan. B1 and B2 still "
+        "record and stop there, and the TRACK pot is in the same place, so "
+        "you can walk through all five tracks without leaving it.");
 
 /* ---- surfaces ------------------------------------------------------------ */
 
@@ -415,6 +506,135 @@ static void track_gesture(const char* what)
     mark_set_param(M, key, "1");
 }
 
+/* ---- TRACK page ------------------------------------------------------------ */
+
+/*
+ * Five values per track, kept in the extras (so they survive a power cycle)
+ * and mirrored into the engine. The page is a window on the selected track:
+ *
+ *   a knob moves      -> extras.trk[g_track] and the engine, together
+ *   the track changes -> the page is reloaded from the extras; SetStored
+ *                        re-arms catch, so a pot never drags the new track
+ *                        to wherever it was left for the old one
+ *   a preset loads    -> extras.loads moves; every value is pushed to the
+ *                        engine again and the page reloaded
+ *
+ * g_applied is what the engine last heard. 0xFF = nothing yet, which is how
+ * the first frame after boot pushes all twenty-five.
+ */
+static_assert(kExtrasTracks == MARK_TRACKS, "extras.h carries one row per engine track");
+
+static Knob k_tp[kNumTrackParams] = {
+    {nullptr, 0,   1, true,  HYST},   /* one-shot  */
+    {nullptr, 0,   1, true,  HYST},   /* reverse   */
+    {nullptr, 0,   6, true,  HYST},   /* fx        */
+    {nullptr, 0, 100, false, 0.0f},   /* fx amount */
+    {nullptr, 0, 100, false, 0.0f},   /* pan       */
+};
+
+static const uint8_t kTrackPot[kNumTrackParams] = {
+    kPotTopLeft, kPotTopRight, kPotMiddleLeft, kPotMiddleRight, kPotBottomLeft,
+};
+
+static VirtualKnob* const kTrackKnob[kNumTrackParams] = {
+    &trk_shot, &trk_rev, &trk_fx, &trk_fxamt, &trk_pan,
+};
+
+static uint8_t  g_applied[MARK_TRACKS][kNumTrackParams];
+static uint32_t g_seen_loads = 0;
+
+static void track_param_int(int ti, const char* what, int v)
+{
+    char key[24];
+    snprintf(key, sizeof key, "t%d_%s", ti + 1, what);
+    set_param_int(key, v);
+}
+
+static void apply_track_param(int ti, uint8_t which, int v)
+{
+    switch (which)
+    {
+        case kTpShot:  track_param_int(ti, "shot", v); break;
+        /* The engine ends an overdub when a track is reversed (the RC's
+         * rule: no dub while reversed). */
+        case kTpRev:   track_param_int(ti, "rev", v);  break;
+        /* One knob for two engine parameters: zone 0 switches the insert
+         * off and leaves its type alone, zones 1..6 are the tfx_t codes. */
+        case kTpFx:
+            if (v > 0) track_param_int(ti, "fx", v);
+            track_param_int(ti, "fx_on", v > 0 ? 1 : 0);
+            break;
+        case kTpFxAmt: track_param_int(ti, "fxp", v);  break;
+        case kTpPan:   track_param_int(ti, "pan", v);  break;
+        default: break;
+    }
+}
+
+/* The stored position that reads back as v: a zone's centre, or the point
+ * on a linear scale. The inverse of knob_quantize. */
+static float knob_norm_of(const Knob& k, int v)
+{
+    const int span = k.hi - k.lo;
+    if (k.zones) return ((float)(v - k.lo) + 0.5f) / (float)(span + 1);
+    return (float)(v - k.lo) / (float)span;
+}
+
+static void load_track_page(int ti, const float* phys)
+{
+    for (uint8_t w = 0; w < kNumTrackParams; w++)
+    {
+        const int   v = extras.trk[ti][w];
+        const float n = knob_norm_of(k_tp[w], v);
+        pager.SetStored(kPageTrack, kTrackPot[w], n, phys);
+        /* Prime the change detector, or the next frame would "discover" the
+         * new track's own value and send it straight back. */
+        k_tp[w].last      = v;
+        k_tp[w].last_norm = n;
+    }
+}
+
+/* Extras -> engine, for whatever the engine has not heard yet. */
+static void sync_tracks(const float* phys)
+{
+    if (extras.loads != g_seen_loads)
+    {
+        g_seen_loads = extras.loads;
+        memset(g_applied, 0xFF, sizeof g_applied);
+    }
+
+    bool reload = false;
+    for (int ti = 0; ti < MARK_TRACKS; ti++)
+        for (uint8_t w = 0; w < kNumTrackParams; w++)
+        {
+            const uint8_t v = extras.trk[ti][w];
+            if (v == g_applied[ti][w]) continue;
+            apply_track_param(ti, w, v);
+            g_applied[ti][w] = v;
+            if (ti == g_track) reload = true;
+        }
+    if (reload) load_track_page(g_track, phys);
+}
+
+/* The page's own pots. True when one moved (worth a flash write). */
+static bool dispatch_track_page(void)
+{
+    bool moved = false;
+    for (uint8_t w = 0; w < kNumTrackParams; w++)
+    {
+        float n = kTrackKnob[w]->Norm();
+        /* A pan pot wants a centre it can find. */
+        if (w == kTpPan && fabsf(n - 0.5f) < 0.03f) n = 0.5f;
+
+        int v;
+        if (!knob_changed(k_tp[w], n, &v)) continue;
+        extras.trk[g_track][w] = (uint8_t)v;
+        g_applied[g_track][w]  = (uint8_t)v;
+        apply_track_param(g_track, w, v);
+        moved = true;
+    }
+    return moved;
+}
+
 /* ---- gate jacks: J3 clock, J4 record, J5 stop ------------------------------ */
 
 /*
@@ -500,14 +720,24 @@ static void emit_to_engine(void* ctx, uint8_t byte)
  *   B2 tap                 stop the track
  *   B2 hold  > 600 ms      ALL start / stop (fires while held)
  *
+ *   B3 tap   < 300 ms      PLAY <-> TRACK page
+ *
  * Taps act on RELEASE, so a hold never fires the tap first; the cost is a
  * release-time delay on the first loop's downbeat, which the grid then
  * carries consistently. Edges come from Pressed(), not RisingEdge() (see
  * smack-versio's note on the debouncer's own edge flag at a 1 ms poll).
+ *
+ * B3 belongs to the Pager (hold = the SETUP layer, one binding per button),
+ * so its tap is arbitrated here the way pager.h intends: a short press that
+ * edited nothing (HoldUsed) and never met B2 (the Settings chord) is a tap.
+ * The layer engages on the press edge, so SETUP shows on the rings for the
+ * length of the tap; GoToPage then cancels it. The jump itself needs the
+ * physical pots, so it is only flagged here and made in OnFrame.
  */
 #define UNDO_PRESS_MS  600u
 #define CLEAR_PRESS_MS 2000u
 #define ALL_PRESS_MS   600u
+#define NAV_TAP_MS     300u
 
 struct Press
 {
@@ -516,15 +746,33 @@ struct Press
     uint32_t t0    = 0;
 };
 
-static Press b1, b2;
+static Press b1, b2, b3;   /* b3.fired = the press met B2: a chord, not a tap */
+
+static volatile bool G_NAV_TAP  = false;
+static uint8_t       g_nav_page = kPagePlay;   /* the page B3 returns to */
 
 static void OnPoll(uint32_t now)
 {
     if (settings.IsActive())
     {
-        b1.down = b2.down = false;
+        b1.down = b2.down = b3.down = false;
         G_TRIG_REC = G_TRIG_STOP = false;
+        G_NAV_TAP = false;
         return;
+    }
+
+    /* B3 */
+    {
+        const bool pressed = hw.buttons[kButtonB3].Pressed();
+        if (pressed && !b3.down) { b3.down = true; b3.fired = false; b3.t0 = now; }
+        if (b3.down && pressed && hw.buttons[kButtonB2].Pressed()) b3.fired = true;
+        if (b3.down && !pressed)
+        {
+            b3.down = false;
+            if (!b3.fired && now - b3.t0 < NAV_TAP_MS
+                && !pager.HoldUsed(hw.buttons[kButtonB3]))
+                G_NAV_TAP = true;
+        }
     }
 
     /* Trigger jacks, consumed here so set_param never runs in the callback. */
@@ -614,13 +862,53 @@ static void OnFrame(void)
     const uint32_t now = System::GetNow();
     int            v;
 
+    float phys[kNumPots];
+    for (uint8_t p = 0; p < kNumPots; p++) phys[p] = hw.pots[p].Value();
+
+    /* B3 tap: PLAY <-> TRACK. The Pager has already handled the release by
+     * now (ControlLoop runs its Update before this), and GoToPage cancels
+     * the layer outright if it has not. */
+    if (G_NAV_TAP)
+    {
+        G_NAV_TAP = false;
+        if (!settings.IsActive())
+        {
+            g_nav_page = (g_nav_page == kPageTrack) ? kPagePlay : kPageTrack;
+            pager.GoToPage(g_nav_page, phys);
+        }
+    }
+
+    /* TRACK select is P6 on both pages. Whichever page is showing owns the
+     * pot; its stored value is copied to the other, where the same physical
+     * position catches at once (InitCatch's proximity window). g_track is
+     * always read from the PLAY page's knob, which is the one J6 modulates. */
+    {
+        const float sp = pager.Stored(kPagePlay,  kPotBottomRight);
+        const float st = pager.Stored(kPageTrack, kPotBottomRight);
+        if (fabsf(sp - st) > 1.0e-4f)
+        {
+            if (pager.Page() == kPageTrack) pager.SetStored(kPagePlay,  kPotBottomRight, st, phys);
+            else                            pager.SetStored(kPageTrack, kPotBottomRight, sp, phys);
+        }
+    }
+
     /* PLAY page. Values are catch + locks + CV, already mixed by the SDK. */
     dispatch(k_lvl[0], lvl1.Norm());
     dispatch(k_lvl[1], lvl2.Norm());
     dispatch(k_lvl[2], lvl3.Norm());
     dispatch(k_lvl[3], lvl4.Norm());
     dispatch(k_lvl[4], lvl5.Norm());
-    if (knob_changed(k_track, track.Norm(), &v)) g_track = v;
+    if (knob_changed(k_track, track.Norm(), &v))
+    {
+        g_track = v;
+        load_track_page(g_track, phys);
+    }
+
+    /* TRACK page. sync first: after a preset load the page holds whatever
+     * track was showing when the preset was saved, and must be reloaded
+     * before its pots are read as this track's. */
+    sync_tracks(phys);
+    if (dispatch_track_page()) mark_dirty(now);
 
     /* SETUP page. These are worth a flash write when they move. */
     if (knob_changed(k_quant, quant.Norm(), &v))
@@ -778,8 +1066,10 @@ static void OnRender(uint32_t t_ms)
     else                             ck = kGrey;
     L.SetButtonPair(kButtonB2, L.ScaleGlobal(ck));
 
+    /* Which page a release of B3 lands on: dim violet PLAY, amber TRACK. */
     if (pager.Page() != kPageSetup)
-        L.SetButtonPair(kButtonB3, L.ScaleGlobal(kColSetup));
+        L.SetButtonPair(kButtonB3, L.ScaleGlobal(g_nav_page == kPageTrack ? kColTrkPg
+                                                                         : kColSetup));
 }
 
 /* ---- audio ----------------------------------------------------------------- */
@@ -929,7 +1219,7 @@ int main(void)
      * front USB-C unless this is a bench build. Must all be declared before
      * BootLoad(), which is where the host starts. */
     host.Product("Mark")
-        .Pages(play_page, setup_page)
+        .Pages(play_page, setup_page, track_page)
         .Jacks(jk_in_l, jk_in_r, jk_clk, jk_rec, jk_stop, jk_cv_trk,
                jk_cv_l1, jk_cv_l2, jk_out_l, jk_out_r)
         .Buttons(bt_track, bt_stop, bt_setup)
@@ -940,7 +1230,11 @@ int main(void)
     host.Transport(bench_cdc);
 #endif
 
-    /* Preset payload: both pages, the settings screen, and the extras. */
+    /* Nothing on the TRACK page has reached the engine yet; the first frame
+     * pushes all five tracks from the extras (sync_tracks). */
+    memset(g_applied, 0xFF, sizeof g_applied);
+
+    /* Preset payload: the pages, the settings screen, and the extras. */
     presets.Manage(pager);
     presets.Manage(settings);
     presets.Manage(extras);
@@ -993,6 +1287,7 @@ int main(void)
         .Use(host)
         .Use(play_page)
         .Use(setup_page)
+        .Use(track_page)
         .OnFrame(OnFrame)
         .OnPoll(OnPoll)
         .OnRender(OnRender);
