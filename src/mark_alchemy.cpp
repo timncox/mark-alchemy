@@ -36,6 +36,7 @@
 
 #include "alchemy/hw/alchemy_lab.h"
 #include "alchemy/hw/v2_calibration.h"
+#include "alchemy/led/anims/catch_pip.h"
 #include "alchemy/host_link/cdc_transport.h"
 #include "alchemy/host_link/host.h"
 #include "alchemy/storage/fs_extension.h"
@@ -170,6 +171,8 @@ static const char* const kFxLabels[7]     = {"Off", "Low-pass", "High-pass", "Cr
  * the state. The pot's catch pip is lost on these five; the PLAY page
  * adopts the physical pots at boot so it rarely matters.
  */
+extern Pager pager;   /* defined with the surfaces below; read by TrackRing */
+
 static void TrackRing(LedPanel& panel, uint8_t pot, const ArcGeometry& geo,
                       float norm, uint32_t t_ms, void* ctx)
 {
@@ -202,6 +205,13 @@ static void TrackRing(LedPanel& panel, uint8_t pot, const ArcGeometry& geo,
         const float hour = geo.start_hour + geo.step_hours * p * (float)(geo.arc_leds - 1);
         panel.SetRingByHour(pot, fmodf(hour, 12.0f), panel.ScaleGlobal(kWhite));
     }
+
+    /* A custom ring gets no catch pip from the SDK, and these five need it
+     * most: after a picker switch the pot points wherever the last firmware
+     * left it, and the level only moves once the pot has swept past the
+     * saved one. Amber, at the saved level, until it catches -- amber so it
+     * cannot be taken for the white playhead. */
+    DrawCatchPip(panel, pot, pager.State(kPagePlay, pot), geo, kAmber);
 }
 
 /*
@@ -387,7 +397,7 @@ static Manual manual = Manual()
 /* ---- surfaces ------------------------------------------------------------ */
 
 static ControlLoop loop(hw);
-static Pager       pager = Pager(kNumAppPages, kNumPots)
+Pager              pager = Pager(kNumAppPages, kNumPots)
                                .Shift(hw.buttons[kButtonB3], kPageSetup);
 
 /*
@@ -1282,13 +1292,18 @@ int main(void)
         pager.SetStored(kPageSetup, kPotBottomRight, 0.5f,        phys); /* 100 %    */
     }
 
-    /* The PLAY page comes up honest: whatever a pot points at is what the
-     * module does, no catch to cross first. Setup keeps its stored values.
-     * BootLoad() left the Pager a deferred re-arm for its first Update();
-     * that only re-runs InitCatch against phys (pager.cpp LockPage) and
-     * never touches the stored values, so these survive it. */
-    for (uint8_t p = 0; p < kNumPots; p++)
-        pager.SetStored(kPagePlay, p, phys[p], phys);
+    /* The PLAY page. With nothing saved (first boot after a flash) it
+     * adopts the pots, so whatever a pot points at is what the module
+     * does. With a saved state it keeps the saved values, and each pot
+     * must catch its value before it takes over: the pots are shared by
+     * every firmware on the card, so after a picker switch they point
+     * wherever the last firmware left them, and adopting them would
+     * overwrite this one's settings with another's. BootLoad() left the
+     * Pager a deferred re-arm for its first Update(), which arms the
+     * catch against phys without touching the stored values. */
+    if (!had_boot)
+        for (uint8_t p = 0; p < kNumPots; p++)
+            pager.SetStored(kPagePlay, p, phys[p], phys);
 
     /* Report last session's peak on the P1 ring, then start recording this
      * one. Audio is already passing through during the readout. */
