@@ -35,6 +35,10 @@
   /* SETUP page rings */
   --c-quant:#40ffc0; --c-recact:#ff8040; --c-dub:#ffc040; --c-playmd:#80ffff; --c-tempo:#ffc040; --c-master:#ff40a0;
   --c-dimled:#181818; --c-setup:#30104a;
+  /* TRACK page rings */
+  --c-shot:#ffff60; --c-rev:#ff6060; --c-fx:#a080ff; --c-fxamt:#8060ff; --c-panr:#40e0ff; --c-panl:#ffa040; --c-trkpg:#502808;
+  /* catch pip, picker compare */
+  --c-catch:#ff8000; --k-compare:#20c0c0; --k-same:#40ff60;
   /* button pairs */
   --s-idle:#000030; --s-amber:#ff8000; --s-red:#ff0000; --s-green:#00ff00; --s-white:#ffffff; --s-grey:#606060; --s-blue:#0050ff;
   /* the picker */
@@ -140,6 +144,7 @@ pre i{color:var(--ink);font-style:normal}
 .tg:hover{color:var(--ink);border-color:rgba(76,242,138,.4)}
 .tg[aria-pressed="true"]{color:var(--acc);border-color:var(--acc);background:var(--acc-soft)}
 .tg[data-page="1"][aria-pressed="true"]{color:#c060ff;border-color:#c060ff;background:rgba(192,96,255,.14)}
+.tg[data-page="2"][aria-pressed="true"]{color:#ff9030;border-color:#ff9030;background:rgba(255,144,48,.14)}
 .tgcap{font-family:var(--mono);font-size:10.5px;color:var(--dim);letter-spacing:.04em}
 
 /* ---------- the five tracks, live ---------- */
@@ -197,6 +202,8 @@ footer p{max-width:70ch}
   <a class="s" href="#play">Playing</a>
   <a class="s" href="#tracks">Tracks</a>
   <a class="s" href="#setup">Setup</a>
+  <a class="s" href="#trackpage">Track page</a>
+  <a class="s" href="#settings">Settings</a>
   <a class="s" href="#clock">Clock</a>
   <a class="s" href="#cv">CV</a>
   <a class="s" href="#rings">Rings</a>
@@ -211,17 +218,19 @@ footer p{max-width:70ch}
 <header id="top"><div class="wrap">
   <div class="hero">
     <div>
-      <div class="eyebrow">Custom firmware · Hermetic Modular Alchemy Lab V2 · v0.1.0</div>
+      <div class="eyebrow">Custom firmware · Hermetic Modular Alchemy Lab V2 · build e35fad5</div>
       <h1 class="title">Mark<em>for Alchemy Lab</em></h1>
       <div class="tagline">Five loops under two buttons. The first one you record is the bar.</div>
 
       <div class="note">
-        <h3>Built. Not yet heard.</h3>
-        <p>v0.1.0 compiles for the module and passes its native test: five tracks of
-          <b>55 seconds</b> each fit the module's SDRAM, and a two-second first loop, recorded with
-          no clock, becomes exactly one bar and plays back. <b>Nothing has been heard through it
-          yet.</b> Every claim below about how it plays is a claim about the same engine on the
-          Ableton Move, where it has been played, sessions and all.</p>
+        <h3>Heard, and still being tested</h3>
+        <p>On 22 September 2026 it ran on a racked module: loops record and play back, the TRACK
+          page works, B2 shows clock lock, and the SD picker switches between Mark, Smack and Belt
+          with each keeping its own settings. Five tracks of <b>55 seconds</b> each fit the
+          module's SDRAM, and the native tests pass.</p>
+        <p><b>Not yet tried on hardware:</b> a long run against a steady clock (drift would be a
+          bug), the J4 / J5 trigger inputs, the CV inputs, a cold power cycle, and the CPU load
+          with five tracks and their effects all running.</p>
       </div>
     </div>
     <div class="heroplate">
@@ -255,11 +264,11 @@ footer p{max-width:70ch}
         and overdub, hold for undo, hold longer to clear. B2 stops it; hold B2 for ALL.</p></div>
   </div>
   <p style="margin-top:26px">It is the same C engine as <a href="https://timncox.github.io/schwung-mark/">Mark</a>
-    for the Ableton Move, recompiled for the Alchemy Lab: six pots on two pages, three buttons,
-    six CV jacks that read independently of the pots, and 102 LEDs. Two things the Move version
-    has are not on this panel yet: sessions saved to the card, and the per-track pan, reverse,
-    one-shot and built-in track effects. The engine still has them; the panel does not reach them
-    in v0.1.0. It also brings <a href="#card">firmware swapping from the SD card</a>, so this
+    for the Ableton Move, recompiled for the Alchemy Lab: six pots on three pages, three buttons,
+    six CV jacks that read independently of the pots, and 102 LEDs. Each track's one-shot,
+    reverse, built-in effect and pan are on <a href="#trackpage">the TRACK page</a>, a tap of B3
+    away. The one thing the Move version has that this panel does not is sessions saved to the
+    card; the engine still has them. It also brings <a href="#card">firmware swapping from the SD card</a>, so this
     module can carry several firmwares and change between them from a settings page.</p>
 </div></section>
 
@@ -269,11 +278,12 @@ footer p{max-width:70ch}
   <p class="lede">Every hole sits where it sits on an Alchemy Lab. The coordinates come from the
     SDK's own KiCad front-panel template, not from a photo, and the drawing is generated from
     them. The PLAY page is five track levels and the TRACK selector; the SETUP page appears while
-    B3 is held.</p>
+    B3 is held; a quick tap of B3 swaps PLAY for the selected track's TRACK page and back.</p>
 
   <div class="toggles">
     <button class="tg" id="tgPlay" data-page="0" aria-pressed="true">Play page</button>
     <button class="tg" id="tgSetup" data-page="1" aria-pressed="false">Setup page · hold B3</button>
+    <button class="tg" id="tgTrack" data-page="2" aria-pressed="false">Track page · tap B3</button>
     <span class="tgcap" id="tgCap">rings as the firmware draws them</span>
   </div>
 
@@ -284,7 +294,7 @@ footer p{max-width:70ch}
     <div class="readout" id="ro">
       <div class="rk" id="roK">Select a control</div>
       <h3 id="roT">The panel</h3>
-      <div class="rs" id="roS">6 pots × 2 pages · 3 buttons · 10 jacks · 102 LEDs</div>
+      <div class="rs" id="roS">6 pots × 3 pages · 3 buttons · 10 jacks · 102 LEDs</div>
       <div class="rd" id="roD">Hover or click anything on the drawing. Audio in and out, the
         front USB-C and the light rings are fixed Alchemy Lab hardware; everything else is what
         this firmware makes of them.</div>
@@ -377,16 +387,20 @@ footer p{max-width:70ch}
     </tbody>
   </table></div>
   <p style="margin-top:20px">The arc's length is the LEVEL pot, so the ring is doing two jobs. The
-    catch pip the SDK normally draws is not drawn on these five: the PLAY page adopts the physical
-    pots at boot, so the pots are already where they say they are.</p>
+    levels are saved, and a saved level wins over where the pot happens to point: after a power
+    cycle, or after the picker has switched in from another firmware that left the pots somewhere
+    else, each ring shows an <span class="sw" style="color:var(--c-catch)"></span><b>amber pip at
+    the saved level</b> until you sweep the pot past it. Then the pot takes over. The pip is amber
+    so it cannot be mistaken for the white playhead.</p>
 </div></section>
 
 <section id="setup"><div class="wrap">
-  <h2 class="sh">The second page</h2>
-  <div class="sub">05 — What B3 buys back</div>
-  <p class="lede">The RC-505's system menu is a pot page here: hold B3 and the same six pots are the
-    grid, what a recording ends in, how an overdub lands, whether tracks are sections, the tempo and
-    the master.</p>
+  <h2 class="sh">The other pages</h2>
+  <div class="sub">05 — What B3 buys back: hold it, or tap it</div>
+  <p class="lede">B3 does two things. <b>Hold it</b> and the same six pots are the RC-505's system
+    menu: the grid, what a recording ends in, how an overdub lands, whether tracks are sections,
+    the tempo and the master. <b>Tap it</b> and they become the selected track's own page:
+    one-shot, reverse, an effect, its amount and pan. Settings, the SDK's layer, sits behind both.</p>
 
   <h3 class="h">SETUP — hold B3</h3>
   <div class="sub">The set-once things</div>
@@ -404,26 +418,64 @@ footer p{max-width:70ch}
   <p style="margin-top:20px"><b>Opening the page to look cannot change anything.</b> The SDK's pot
     catch runs on the way in and on the way out: a SETUP pot only takes effect once you turn it
     through the value it already holds, and letting go of B3 hands the pots back to the PLAY page
-    without jumping any level. The six SETUP values are saved to flash a few seconds after you
-    stop moving them and come back at the next power-up; loop audio is never saved. The PLAY page
-    always comes up honest: at boot, whatever a pot points at is what the module does.</p>
+    without jumping any level. All three pages are saved to flash a few seconds after you stop
+    moving a pot, and come back at the next power-up or the next time the picker switches back to
+    Mark; loop audio is never saved. Saved PLAY levels come back too, and each pot has to
+    <a href="#tracks">catch its saved level</a> before it takes over.</p>
   <p>First boot after flashing seeds the page with QUANTIZE Bar, REC → Play, Overdub, Multi,
-    120 BPM, 100%.</p>
+    120 BPM, 100%, and the PLAY page takes the pots where they are.</p>
 
-  <h3 class="h">Settings — hold B2 + B3 for two seconds</h3>
+  <h3 class="h" id="trackpage">TRACK — tap B3</h3>
+  <div class="sub">The selected track's own page · B3 light amber while it is showing</div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Pot</th><th>Parameter</th><th>Range</th><th>Ring</th></tr></thead>
+    <tbody>
+      <tr><td>P1</td><td><b>ONE-SHOT</b>, whether the track loops or plays once and stops</td><td>Loop · One-shot</td><td><span class="sw" style="color:var(--c-shot)"></span>2 dots</td></tr>
+      <tr><td>P2</td><td><b>REVERSE</b>, the track plays backwards. Reversing a track that is overdubbing ends the overdub: the RC's rule</td><td>Forward · Reverse</td><td><span class="sw" style="color:var(--c-rev)"></span>2 dots</td></tr>
+      <tr><td>P3</td><td><b>FX</b>, the track's built-in insert effect</td><td>Off · Low-pass · High-pass · Crush · Delay · Phaser · Ring mod</td><td><span class="sw" style="color:var(--c-fx)"></span>7 dots</td></tr>
+      <tr><td>P4</td><td><b>FX AMOUNT</b></td><td class="num">0–100 %</td><td><span class="sw" style="color:var(--c-fxamt)"></span>level</td></tr>
+      <tr><td>P5</td><td><b>PAN</b>, with a small dead zone at centre so the middle is easy to find</td><td class="num">L50 – R50</td><td><span class="sw" style="color:var(--c-panl)"></span>left · <span class="sw" style="color:var(--c-panr)"></span>right, from a white centre</td></tr>
+      <tr><td>P6</td><td><b>TRACK</b>, the same selector as on PLAY, on the same pot</td><td>1 · 2 · 3 · 4 · 5</td><td>five dots in the tracks' own state colours, the selected one bright</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:20px"><b>One page, five tracks.</b> The page always shows the track TRACK
+    points at. Turn P6, or let J6 move it, and the page reloads with that track's values; each pot
+    then has to catch the new track's value before it moves it, so walking through the tracks
+    never drags one track's settings onto the next. <b>B1 and B2 still record and stop</b> here,
+    so you can set a track's effect and keep playing without leaving the page. Every track's five
+    values are saved with the rest of the state.</p>
+  <p>With the LEVEL rings out of sight, the P6 ring stands in for them: five dots in the five
+    tracks' state colours, blinking while one waits for the bar line, the selected one at full
+    brightness and the rest at a quarter. A tap is a press under 0.3 s that turned nothing and
+    never met B2. The SETUP layer engages on the press, so <b>SETUP flashes on the rings for the
+    length of the tap</b>. The B3 light says where the next tap lands you:
+    <span class="sw" style="color:#8030d0"></span>dim violet on PLAY,
+    <span class="sw" style="color:#ff9030"></span>dim amber on TRACK. The swatches here are
+    brightened; on the module both are low-brightness tints.</p>
+  <p>First boot: every track Loop, Forward, FX off with the amount at 50, pan centre. Not here
+    yet: loop length. The engine only accepts a length of up to one bar, so a pot for it would cut
+    a longer loop down to a bar. Halving a loop needs a small engine change first.</p>
+
+  <h3 class="h" id="settings">Settings — hold B2 + B3 for two seconds</h3>
   <div class="sub">The SDK's own settings layer; B1 steps through its pages, B2 or B3 leaves</div>
   <div class="cols">
     <div class="card"><div class="k">Page 1</div><h4>Brightness · dry input · presets · clock ratio</h4>
       <p><b>P1</b> ring brightness. <b>P2</b> DRY INPUT: Through mixes what comes in on J1/J2 into
         the output, as the RC does; Muted outputs the loops only, for a mixer that already has the
         dry signal. <b>P3 / P4</b> preset slot and action. <b>P5</b> CLOCK RATIO: what one pulse
-        on J3 is worth, ÷2, =1 or ×2.</p></div>
+        on J3 is worth, ÷2, =1 (a quarter note, the default) or ×2.</p></div>
     <div class="card"><div class="k">Page 2</div><h4>Firmware</h4>
       <p>The SD card picker: <b>P1</b> file, <b>P2</b> flash, <b>P3</b> DFU. <a href="#card">The
         card section</a> is about it.</p></div>
+    <div class="card"><div class="k">Where it saves</div><h4>Slot 13, Mark's own</h4>
+      <p>Each firmware in the family autosaves to a slot of its own: Smack 12, Mark 13, Belt 14,
+        Relay 15, counting from 0 (HostLink counts from 1). So switching to Belt and back leaves
+        Mark as you left it. Slots 0–11 are for presets you save by hand. Saving one by hand into
+        12–15 overwrites that firmware's working state.</p></div>
   </div>
   <p style="margin-top:20px">B2 stands down while B3 is held, so the two seconds of the Settings
-    chord never fire ALL on the way in and letting go stops nothing.</p>
+    chord never fire ALL on the way in and letting go stops nothing. A B3 press that met B2 is
+    never taken as a tap, so the chord never flips the page either.</p>
 </div></section>
 
 <section id="clock"><div class="wrap">
@@ -452,8 +504,14 @@ footer p{max-width:70ch}
   <p><b>J3 is read raw in the audio callback</b>, not through the SDK's 20 Hz pot filter, which
     would smear a pulse. It fires on the <em>magnitude</em> of the swing away from the jack's
     calibrated zero, 1.5 V to assert and 0.5 V to release, so a pulse counts whichever way the
-    front end signs it. The same reader watches J4 and J5 for the two trigger inputs. This is the
-    part of the port that native tests cannot reach; it is unheard.</p>
+    front end signs it. The same reader watches J4 and J5 for the two trigger inputs. It reads
+    once per 128-sample block, about every 2.7 ms, so <b>use pulses of 5 ms or longer</b>: shorter
+    ones can be missed.</p>
+  <p><b>Loops do not follow the clock's tempo.</b> Playback is always at the speed it was
+    recorded. The clock places record, play and stop on the bar line, rounds loop lengths to whole
+    bars, and times the delay effect. Change the clock's tempo and the loops keep their own. B2
+    turning blue on a clock has been seen on the module. A long steady-clock run to check for drift
+    has not been done yet.</p>
 </div></section>
 
 <section id="cv"><div class="wrap">
@@ -477,7 +535,7 @@ footer p{max-width:70ch}
     across all five tracks with no hands on the module. The triggers are edge-detected in the
     audio callback and acted on at the one-millisecond control poll, so the engine's parameter
     calls never run on the audio thread.</p>
-  <p>The routing is fixed and provisional in v0.1.0; choosing it from the Settings pages is the
+  <p>The routing is fixed and provisional; choosing it from the Settings pages is the
     obvious next version.</p>
 </div></section>
 
@@ -489,12 +547,13 @@ footer p{max-width:70ch}
   <div class="tablewrap"><table>
     <thead><tr><th>Where</th><th>Shows</th></tr></thead>
     <tbody>
-      <tr><td>LEVEL rings 1–5</td><td>The track's state colour as a level arc, blinking while an action waits for the bar line, a white playhead once around per loop pass.</td></tr>
-      <tr><td>TRACK ring</td><td>Five dots, the selected track bright.</td></tr>
-      <tr><td>SETUP rings</td><td>The SDK draws every SETUP pot's value in its colour while B3 is held.</td></tr>
+      <tr><td>LEVEL rings 1–5</td><td>The track's state colour as a level arc, blinking while an action waits for the bar line, a white playhead once around per loop pass, and an <span class="sw" style="color:var(--c-catch)"></span>amber pip at the saved level until the pot catches it.</td></tr>
+      <tr><td>TRACK ring · PLAY</td><td>Five dots, the selected track bright.</td></tr>
+      <tr><td>TRACK ring · TRACK page</td><td>Five dots in the five tracks' state colours, the selected one bright and the rest at a quarter, blinking while pending. An empty selected track shows the selector blue.</td></tr>
+      <tr><td>SETUP · TRACK rings</td><td>The SDK draws every pot's value in its colour, with its catch pip until the pot has caught.</td></tr>
       <tr><td>B1 · TRACK</td><td>The selected track's state colour: <span class="sw" style="color:#3050ff"></span>dim blue empty · <span class="sw" style="color:var(--t-rec)"></span>red · <span class="sw" style="color:var(--t-play)"></span>green · <span class="sw" style="color:var(--t-dub)"></span>yellow · <span class="sw" style="color:var(--t-stop)"></span>white stopped · blinking pending · <span class="sw" style="color:var(--s-white)"></span>white while a hold has reached undo</td></tr>
       <tr><td>B2 · CLOCK</td><td><span class="sw" style="color:var(--s-blue)"></span>blue locked to J3 · <span class="sw" style="color:#909090"></span>grey free-running · <span class="sw" style="color:var(--s-red)"></span><b>red = the audio callback is above 80%</b></td></tr>
-      <tr><td>B3 · SETUP</td><td>A dim violet tint while the PLAY page is up; the SDK lights it in the page colour while SETUP is held.</td></tr>
+      <tr><td>B3 · SETUP / TRACK</td><td>Where a tap lands: a dim violet tint on PLAY, dim amber on TRACK. The SDK lights it in the page colour while SETUP is held.</td></tr>
       <tr><td>P1 ring, first 2.5 s</td><td>Last session's worst CPU load, as a bar. See below.</td></tr>
       <tr><td>All three buttons red</td><td>The engine could not allocate its five tracks. The native test proves 55 seconds a track fits the pool with room, so this should be impossible; it fails loudly rather than running silently broken.</td></tr>
     </tbody>
@@ -518,7 +577,8 @@ footer p{max-width:70ch}
   <p style="margin-top:22px">A single dim blue LED means it has not measured anything yet. Green is
     under 75%, amber under 90%, red means it did not fit. Five loops reading and writing from
     external RAM is far less than Smack asks of the same silicon, so this number is expected to be
-    comfortable; it is still unmeasured.</p>
+    comfortable. The worst case, five tracks each running a TRACK-page effect, has not been
+    read off the module yet.</p>
 </div></section>
 
 <section id="card"><div class="wrap">
@@ -550,8 +610,8 @@ footer p{max-width:70ch}
     <tbody>
       <tr><td>P1 · FILE</td><td>Picks a file. One dot per <code>.bin</code> in the folder, the chosen one bright; turn to move the choice.</td>
         <td><span class="sw" style="color:var(--k-file)"></span>green dots · <span class="sw" style="color:#c00000"></span>red: no card · <span class="sw" style="color:#c04800"></span>orange: no folder, or no files</td></tr>
-      <tr><td>P2 · FLASH</td><td>Writes the chosen file. <b>Turn it down below 85%, then all the way up.</b> The dip arms it, so a pot that happens to be parked at maximum cannot fire on entry.</td>
-        <td><span class="sw" style="color:var(--k-erase)"></span>orange erasing · <span class="sw" style="color:var(--k-write)"></span>blue writing · <span class="sw" style="color:var(--k-verify)"></span>green verifying · <span class="sw" style="color:var(--k-done)"></span>white, then reboot · <span class="sw" style="color:var(--k-arm)"></span><b>blinking red: failed, nothing booted; turn down to try again</b></td></tr>
+      <tr><td>P2 · FLASH</td><td>Writes the chosen file. <b>Turn it down below 85%, then all the way up.</b> The dip arms it, so a pot that happens to be parked at maximum cannot fire on entry. It first compares the file with the firmware already running. <b>If they are the same, nothing is written and nothing reboots</b>, so your loops keep playing; turn down to go back to the list.</td>
+        <td><span class="sw" style="color:var(--k-compare)"></span>teal comparing · <span class="sw" style="color:var(--k-same)"></span><b>solid green: already loaded</b> · <span class="sw" style="color:var(--k-erase)"></span>orange erasing · <span class="sw" style="color:var(--k-write)"></span>blue writing · <span class="sw" style="color:var(--k-verify)"></span>green verifying · <span class="sw" style="color:var(--k-done)"></span>white, then reboot · <span class="sw" style="color:var(--k-arm)"></span><b>blinking red: failed, nothing booted; turn down to try again</b></td></tr>
       <tr><td>P3 · DFU</td><td>Same gesture. Reboots into the bootloader's update mode and stays there for a USB flash: the escape hatch for a firmware that has no picker of its own.</td>
         <td><span class="sw" style="color:var(--k-dfu)"></span>violet arming bar</td></tr>
     </tbody>
@@ -564,24 +624,25 @@ footer p{max-width:70ch}
       sector, so the board's calibration record and the preset store are never in the erase
       path. If a write fails, the module blinks red and boots nothing; the bootloader is intact,
       and hold-B3-at-power-on still gets you a USB flash.</p>
-    <p><b>What has and has not run.</b> The card side is proven with this same code in Smack: a
-      card in the module has been written and read back byte-identical over USB, through the
-      mount and buffers the picker uses. The picker's own path, listing the folder and writing
-      the slot, has not yet run in any of the three firmwares.</p>
+    <p><b>What has run.</b> On 22 September 2026 the picker switched a racked module between
+      Mark, Smack and Belt. It listed the folder, wrote and verified the slot, rebooted, and
+      skipped the write when the chosen file was already loaded. Each firmware came back with its
+      own settings: Mark's are kept in slot 13 and are not touched while another firmware runs.
+      The failure paths (a bad image, a pulled card) have not been exercised.</p>
   </div>
 </div></section>
 
 <section id="build"><div class="wrap">
   <h2 class="sh">Build it</h2>
   <div class="sub">10 — No release yet; the source is the download</div>
-  <p class="lede">There is no packaged release of v0.1.0, because nothing has been heard through it.
+  <p class="lede">There is no packaged release yet: the hardware tests above are not finished.
     Building takes a few minutes with the ARM toolchain installed.</p>
   <pre>git clone --recurse-submodules <i data-repo-text></i>
 cd mark-alchemy
 make libdaisy        <b># once</b>
-make                 <b># build/mark_alchemy.bin, ~342 KB, 55 s per track</b>
+make                 <b># build/mark_alchemy.bin, ~346 KB, 55 s per track</b>
 make MARK_SECONDS=40 <b># a smaller capacity; the test proves it fits</b>
-make test            <b># the engine on the SDRAM pool, and a first loop</b></pre>
+make test            <b># the SDRAM pool, a first loop, the TRACK-page save</b></pre>
   <p style="margin-top:20px">Needs <code>arm-none-eabi-gcc</code>, <code>make</code> and
     <code>dfu-util</code>. libDaisy has nested submodules, so the clone must be recursive or the
     HAL is missing. <code>make BENCH_USB=1 BUILD_DIR=build-bench</code> builds a variant with
@@ -609,16 +670,17 @@ make test            <b># the engine on the SDRAM pool, and a first loop</b></pr
         picker</a>.</p></div>
     <div class="card"><div class="k">Back to stock</div><h4>Same door</h4>
       <p>Flashing any Alchemy Lab firmware, Hermetic's own included, the same way returns the
-        module to it. Presets in the slots survive; this firmware's own working preset is
-        schema-guarded, so another firmware will not read it as its own.</p></div>
+        module to it. Presets in the slots survive; this firmware's working state lives in
+        slot 13 and is schema-guarded, so another firmware will not read it as its own.</p></div>
   </div>
   <div class="note warn" style="margin-top:30px">
     <h3>Before you flash it</h3>
     <p>It is custom firmware. Hermetic Modular did not write it, did not test it and cannot
-      support it, so <b>please do not contact them about it</b>. And as of v0.1.0 it has not been
-      heard by anyone, its author included. If you run it before that changes, the things worth
-      reporting are whether the first loop lands where you tapped, whether J3 locks to your clock,
-      and what the boot report reads after a hard session.</p>
+      support it, so <b>please do not contact them about it</b>. It has been played on one
+      racked module, and the tests listed at the top are still open. If you run it, the things
+      worth reporting are whether loops drift against a steady clock, whether J4 and J5 fire
+      reliably, and what the boot report reads after a hard session with the TRACK-page effects
+      on.</p>
   </div>
 </div></section>
 
@@ -633,12 +695,13 @@ make test            <b># the engine on the SDRAM pool, and a first loop</b></pr
       <tr><td>The engine, at 48 kHz</td><td>Mark's engine, byte-identical to the Move build's, with two edits in its header: the sample rate, because libDaisy offers no 44.1 kHz, and a build-time track capacity. 128-frame blocks, as the engine expects.</td></tr>
       <tr><td>Its Move-only needs, stubbed</td><td>The engine uses threads for sessions and dynamic loading for external effects, neither of which exists on this board. Four small headers shadow the POSIX ones it includes and a stub file makes every such call fail the way the real one fails without the resource, so those features go inert instead of being cut out of the engine.</td></tr>
       <tr><td>Five tracks in SDRAM</td><td>A bump allocator in external RAM, 62 MiB of 64. The engine's own capacity ladder cannot work on it, because the allocator never gives memory back, so the capacity is fixed at build time and a native test proves it fits on the first attempt: 64.7 MB used, 55 seconds a track.</td></tr>
-      <tr><td>Two pages, one layer</td><td>The SDK's Pager makes SETUP a held layer on B3 with pot catch on the way in and out. Nothing on the PLAY page can jump because you looked at the other one.</td></tr>
+      <tr><td>Three pages, one layer</td><td>The SDK's Pager makes SETUP a held layer on B3 with pot catch on the way in and out. Nothing on the PLAY page can jump because you looked at another one. A short B3 press is taken as a tap by the app, not the Pager (the Pager allows one binding per button), and flips PLAY and TRACK with <code>GoToPage</code>.</td></tr>
+      <tr><td>One TRACK page, five tracks</td><td>The Pager keeps one value per page and pot, so the five tracks' values live in the firmware's extras and the page is a window on the selected one. A track change reloads the page and re-arms catch; a preset load pushes all twenty-five values to the engine again. A native test checks the round trip and that one corrupt byte resets only that track.</td></tr>
       <tr><td>Clock adapter</td><td>Gate edges become 24 ppqn MIDI clock, the same adapter as Smack, gated so the engine hears it only after a pulse and gets a stop when the pulses end.</td></tr>
-      <tr><td>Working preset</td><td>Slot 1 is the live state: both pages, the Settings and the CPU peak. It autosaves five seconds after the last change with hands off the buttons, one 4 KB sector per save. Loop audio is never saved.</td></tr>
-      <tr><td>The picker</td><td>Three Custom slots on a Settings page: a file scanner, a state machine that erases, writes and verifies one step per frame, and a DFU hand-off. Shared, by copy, with Smack and Belt.</td></tr>
-      <tr><td>HostLink</td><td>Product "Mark", both pages, ten jacks, three buttons, a manual and the SD filesystem, over the front USB-C.</td></tr>
-      <tr><td>Budget</td><td>~342 KB image. SRAM 71%, DTCM 57%, SDRAM 97%. CPU: unmeasured.</td></tr>
+      <tr><td>Working preset</td><td>Slot 13 (0-based) is Mark's own live state: all three pages, every track's TRACK-page values, the Settings and the CPU peak. It autosaves five seconds after the last change, PLAY levels included, once hands are off the buttons and the picker is idle, one 4 KB sector per save. At boot the home slot wins; slot 0, where earlier builds saved, is read once so that an older module keeps its settings. Loop audio is never saved. Adding the TRACK page changed the saved format, so the first boot of this build after a v0.1.0 one starts from first-boot defaults. That is the schema check doing its job.</td></tr>
+      <tr><td>The picker</td><td>Three Custom slots on a Settings page: a file scanner, a state machine that compares, erases, writes and verifies one step per frame, and a DFU hand-off. Shared, by copy, with Smack and Belt.</td></tr>
+      <tr><td>HostLink</td><td>Product "Mark", all three pages, ten jacks, three buttons, a manual and the SD filesystem, over the front USB-C.</td></tr>
+      <tr><td>Budget</td><td>~346 KB image. SRAM 72%, DTCM 76,300 B, SDRAM 97%. CPU: not yet read with the TRACK-page effects running.</td></tr>
     </tbody>
   </table></div>
   <p style="margin-top:24px">Found something, or want it to do something it doesn't?
@@ -654,8 +717,9 @@ make test            <b># the engine on the SDRAM pool, and a first loop</b></pr
     <div class="card"><div class="k">Audio</div><h4>48 kHz · 128</h4><p>Stereo in on J1/J2, stereo out on J9/J10; the dry input passes to the output unless Settings mutes it.</p></div>
     <div class="card"><div class="k">Tracks</div><h4>5 × 55 s</h4><p>Five stereo loop tracks and an undo buffer, 64.7 MB of a 62 MiB SDRAM pool.</p></div>
     <div class="card"><div class="k">Grid</div><h4>Bar · beat · 8th · 16th</h4><p>Measure-quantized sync from a J3 clock or the first loop; polymetric loops on the finer grids.</p></div>
-    <div class="card"><div class="k">Controls</div><h4>6 × 2 · 3 · 6</h4><p>Six pots on two pages, three buttons, a clock, two triggers and three CV inputs, 102 LEDs.</p></div>
-    <div class="card"><div class="k">Storage</div><h4>16 slots + card</h4><p>Sixteen preset slots in QSPI flash; firmware images and files on a FAT32 microSD.</p></div>
+    <div class="card"><div class="k">Controls</div><h4>6 × 3 · 3 · 6</h4><p>Six pots on three pages, three buttons, a clock, two triggers and three CV inputs, 102 LEDs.</p></div>
+    <div class="card"><div class="k">Storage</div><h4>16 slots + card</h4><p>Sixteen preset slots in QSPI flash, slot 13 Mark's working state; firmware images and files on a FAT32 microSD.</p></div>
+    <div class="card"><div class="k">Per track</div><h4>One-shot · reverse · FX · pan</h4><p>Six insert effects: low-pass, high-pass, crush, delay, phaser, ring mod.</p></div>
   </div>
 </div></section>
 
@@ -913,7 +977,8 @@ const PANEL = {
 const C = {
   rec:"#ff0000", play:"#00ff00", dub:"#ffc000", stop:"#c0c0c0", empty:"#20202a",
   track:"#40c0ff", quant:"#40ffc0", recact:"#ff8040", dubmd:"#ffc040", playmd:"#80ffff", tempo:"#ffc040", master:"#ff40a0",
-  dim:"#181818", setup:"#30104a",
+  dim:"#181818", setup:"#30104a", trkpg:"#502808", catchPip:"#ff8000",
+  shot:"#ffff60", rev:"#ff6060", fx:"#a080ff", fxamt:"#8060ff", panR:"#40e0ff", panL:"#ffa040",
   idle:"#000030", amber:"#ff8000", red:"#ff0000", green:"#00ff00", white:"#ffffff", grey:"#606060", blue:"#0050ff",
 };
 const STATE_COL = { empty:C.empty, rec:C.rec, play:C.play, dub:C.dub, stop:C.stop };
@@ -964,6 +1029,26 @@ const PAGES = [
       d:"The loop mix out, with headroom above unity. The dry input is not under it; Settings decides whether the dry input passes at all.",
       meta:["engine <b>master</b>","ring <b>level</b>","default <b>100%</b>"] },
   ]},
+  { name:"TRACK", color:"#ff9030", pots:[
+    { id:"P1", name:"ONE-SHOT", ring:{style:"sel", c:C.shot, n:2}, v:.25, sub:"Loop · One-shot · for the selected track",
+      d:"Loop plays the track round and round; One-shot plays it once and stops, for a hit or a phrase you fire on cue.",
+      meta:["engine <b>t&lt;n&gt;_shot</b>","ring <b>2 dots</b>","default <b>Loop</b>"] },
+    { id:"P2", name:"REVERSE", ring:{style:"sel", c:C.rev, n:2}, v:.75, sub:"Forward · Reverse · for the selected track",
+      d:"Plays the selected track backwards. Reversing a track that is overdubbing ends the overdub: on the RC you cannot overdub a reversed track.",
+      meta:["engine <b>t&lt;n&gt;_rev</b>","ring <b>2 dots</b>","default <b>Forward</b>"] },
+    { id:"P3", name:"FX", ring:{style:"sel", c:C.fx, n:7}, v:4.5/7, sub:"Off · Low-pass · High-pass · Crush · Delay · Phaser · Ring mod",
+      d:"The track's built-in insert effect. Off bypasses it; the other six choose the effect and switch it on. The delay is timed to the bar.",
+      meta:["engine <b>t&lt;n&gt;_fx · fx_on</b>","ring <b>7 dots</b>","default <b>Off</b>"] },
+    { id:"P4", name:"FX AMOUNT", ring:{style:"level", c:C.fxamt}, v:.5, sub:"0–100%",
+      d:"The one parameter the engine gives each insert effect, for the selected track. What it moves depends on the effect chosen on P3.",
+      meta:["engine <b>t&lt;n&gt;_fxp</b>","ring <b>level</b>","default <b>50</b>"] },
+    { id:"P5", name:"PAN", ring:{style:"bipolar", p:C.panR, n:C.panL}, v:.62, sub:"L50 – R50 · ±3% centre snap",
+      d:"Where the selected track sits in the stereo out. Within 3% of the middle it snaps to dead centre, so the middle is easy to find.",
+      meta:["engine <b>t&lt;n&gt;_pan</b>","ring <b>bipolar</b>","default <b>centre</b>"] },
+    { id:"P6", name:"TRACK", ring:{style:"tsel"}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · the same pot as on PLAY",
+      d:"Which track this page belongs to, and which track B1 and B2 act on. The five dots are the five tracks in their state colours, the selected one bright, because the LEVEL rings are out of sight here. It follows J6.",
+      meta:["page <b>reloads per track</b>","ring <b>5 state dots</b>","CV <b>J6</b>"] },
+  ]},
 ];
 
 const BUTTONS = [
@@ -973,18 +1058,18 @@ const BUTTONS = [
   { id:"B2", name:"STOP", sub:"tap · hold",
     d:"Tap: stop the selected track. Hold past half a second: ALL, every playing track stops or every stopped track starts. Its light is the CLOCK: blue locked to J3, grey free-running, red if the CPU is over 80%. Stands down while B3 is held.",
     meta:["light <b>CLOCK</b>","all <b>0.6 s</b>","with B3 <b>Settings, after 2 s</b>"] },
-  { id:"B3", name:"SETUP", sub:"hold",
-    d:"Shows the SETUP page on the pots while held, with catch both ways so nothing jumps. During the boot window it is the bootloader's update-mode button instead.",
-    meta:["page <b>SETUP</b>","boot <b>DFU</b>","with B2 <b>Settings, after 2 s</b>"] },
+  { id:"B3", name:"SETUP", sub:"tap · hold",
+    d:"Tap (under 0.3 s): swap PLAY and the selected track's TRACK page. Hold: the SETUP page on the pots while held, with catch both ways so nothing jumps. Its light says where a tap lands: dim violet on PLAY, dim amber on TRACK. During the boot window it is the bootloader's update-mode button instead.",
+    meta:["tap <b>PLAY ↔ TRACK</b>","hold <b>SETUP</b>","with B2 <b>Settings, after 2 s</b>"] },
 ];
 
 const JACKS = {
   J1:{ name:"IN L",  sub:"audio in, left",  d:"Left channel in. What the tracks record, and what passes through to the output while DRY INPUT is Through.", meta:["kind <b>codec in</b>"] },
   J2:{ name:"IN R",  sub:"audio in, right", d:"Right channel in. The loops are stereo.", meta:["kind <b>codec in</b>"] },
-  J3:{ name:"CLOCK", sub:"gate in · ratio in Settings", d:"A clock. Fed to the engine only after a pulse has arrived, so with nothing patched the first loop sets the bar. Read raw in the audio callback on the magnitude of the swing from the calibrated zero. Unheard.", meta:["assert <b>1.5 V</b>","release <b>0.5 V</b>","ratio <b>Settings P5</b>"] },
+  J3:{ name:"CLOCK", sub:"gate in · ratio in Settings", d:"A clock. Fed to the engine only after a pulse has arrived, so with nothing patched the first loop sets the bar. Read raw in the audio callback on the magnitude of the swing from the calibrated zero; use pulses of 5 ms or longer. Loops keep their recorded speed: the clock places events, it does not stretch them.", meta:["assert <b>1.5 V</b>","release <b>0.5 V</b>","ratio <b>Settings P5</b>"] },
   J4:{ name:"REC TRIGGER", sub:"gate in", d:"A rising edge is a tap on B1 for the selected track: record, play, overdub. A sequencer's record button.", meta:["acts as <b>B1 tap</b>","on <b>TRACK</b>"] },
   J5:{ name:"STOP TRIGGER", sub:"gate in", d:"A rising edge is a tap on B2 for the selected track.", meta:["acts as <b>B2 tap</b>","on <b>TRACK</b>"] },
-  J6:{ name:"CV → TRACK",   sub:"±5 V, summed with PLAY P6", d:"Adds to the TRACK pot: a sequencer walks the five tracks.", meta:["drives <b>PLAY P6</b>"] },
+  J6:{ name:"CV → TRACK",   sub:"±5 V, summed with PLAY P6", d:"Adds to the TRACK pot: a sequencer walks the five tracks. On the TRACK page it walks the page too, which reloads for each track.", meta:["drives <b>PLAY P6</b>"] },
   J7:{ name:"CV → LEVEL 1", sub:"±5 V, summed with PLAY P1", d:"Adds to track 1's level.", meta:["drives <b>PLAY P1</b>"] },
   J8:{ name:"CV → LEVEL 2", sub:"±5 V, summed with PLAY P2", d:"Adds to track 2's level.", meta:["drives <b>PLAY P2</b>"] },
   J9:{ name:"OUT L", sub:"audio out, left",  d:"Left channel out: the five loops through MASTER, plus the dry input when Settings has it Through.", meta:["kind <b>codec out</b>"] },
@@ -1024,6 +1109,24 @@ function ringColours(ring, v, tr) {
     const n = Math.max(1, Math.round(v * N));
     for (let i = 0; i < N; i++) out[i] = i < n ? c : null;
     if ((t.s === "play" || t.s === "dub") && t.pos != null) out[Math.round(t.pos * (N - 1))] = C.white;
+  } else if (ring.style === "bipolar") {
+    /* the SDK's Bipolar: a fan from the arc's midpoint, white pivot */
+    const mid = (N - 1) / 2, to = Math.round(v * (N - 1));
+    for (let i = 0; i < N; i++) out[i] = C.dim;
+    const lo = Math.min(to, Math.round(mid)), hi = Math.max(to, Math.round(mid));
+    for (let i = lo; i <= hi; i++) out[i] = to >= mid ? ring.p : ring.n;
+    out[Math.round(mid)] = C.white;
+  } else if (ring.style === "tsel") {
+    /* TrackSelectRing: five dots in the tracks' state colours, the selected
+       one bright (blue if empty), the rest at a quarter */
+    const ts = (tr && tr.tracks) || HERO_TRACKS, sel = Math.min(4, Math.floor(v * 5));
+    const quarter = (h) => "#" + [1, 3, 5].map(k => Math.floor(parseInt(h.substr(k, 2), 16) / 4).toString(16).padStart(2, "0")).join("");
+    for (let q = 0; q < 5; q++) {
+      let c = STATE_COL[ts[q].s] || C.empty;
+      if (q === sel) { if (ts[q].s === "empty") c = C.track; }
+      else c = quarter(c);
+      out[Math.round(q * (N - 1) / 4)] = c;
+    }
   } else if (ring.style === "boot") {
     for (let i = 0; i < N; i++) out[i] = C.dim;
     if (v <= 0) out[0] = "#2040c0";
@@ -1085,7 +1188,7 @@ function drawPanel(svg, st, onHover) {
   P.pots.forEach((p, i) => {
     const k = page.pots[i], v = st.values[st.page][i];
     const g = mk("P" + (i + 1));
-    drawRing(g, p.x, p.y, k.ring, v, k.ring.style === "track" ? st.tracks[k.ring.t] : null);
+    drawRing(g, p.x, p.y, k.ring, v, k.ring.style === "track" ? st.tracks[k.ring.t] : k.ring.style === "tsel" ? { tracks:st.tracks } : null);
     drawKnob(g, p.x, p.y, v);
     el("text", { x:p.x, y:p.y + P.labels.knob_dy, class:"plabel lit" }, g).textContent = k.name;
     el("circle", { cx:p.x, cy:p.y, r:P.ring.r + 2.2, class:"hit" }, g);
@@ -1113,12 +1216,13 @@ function drawPanel(svg, st, onHover) {
 
 const PLAYV  = PAGES[0].pots.map(k => k.v);
 const SETUPV = PAGES[1].pots.map(k => k.v);
+const TRACKV = PAGES[2].pots.map(k => k.v);
 
 /* hero: unclocked, track 1 selected and playing */
-drawPanel(document.getElementById("heroSvg"), { page:0, values:[PLAYV, SETUPV], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null });
+drawPanel(document.getElementById("heroSvg"), { page:0, values:[PLAYV, SETUPV, TRACKV], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null });
 
 /* the interactive one */
-const iv = { page:0, values:[PLAYV.slice(), SETUPV.slice()], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null };
+const iv = { page:0, values:[PLAYV.slice(), SETUPV.slice(), TRACKV.slice()], halos:[C.play, C.grey, C.setup], tracks:HERO_TRACKS, sel:null };
 const psvg = document.getElementById("panelSvg");
 const ro = { k:document.getElementById("roK"), t:document.getElementById("roT"), s:document.getElementById("roS"), d:document.getElementById("roD"), m:document.getElementById("roM") };
 const roDefault = { k:ro.k.textContent, t:ro.t.textContent, s:ro.s.textContent, d:ro.d.textContent, m:ro.m.innerHTML };
@@ -1149,14 +1253,18 @@ redraw();
 
 function setPage(p) {
   iv.page = p;
-  iv.halos = p === 0 ? [C.play, C.grey, C.setup] : [C.play, C.grey, PAGES[1].color];
+  iv.halos = p === 0 ? [C.play, C.grey, C.setup] : p === 1 ? [C.play, C.grey, PAGES[1].color] : [C.play, C.grey, "#a05818"];
   document.getElementById("tgPlay").setAttribute("aria-pressed", p === 0);
   document.getElementById("tgSetup").setAttribute("aria-pressed", p === 1);
-  document.getElementById("tgCap").textContent = p === 0 ? "rings as the firmware draws them: playing, overdubbing, recording, stopped, empty" : "the same pots while B3 is held; B3 lights in the page colour";
+  document.getElementById("tgTrack").setAttribute("aria-pressed", p === 2);
+  document.getElementById("tgCap").textContent = p === 0 ? "rings as the firmware draws them: playing, overdubbing, recording, stopped, empty"
+    : p === 1 ? "the same pots while B3 is held; B3 lights in the page colour"
+    : "track 1's own page, after a tap of B3; B3 tinted amber, P6 shows all five tracks";
   redraw(); showReadout(pinned);
 }
 document.getElementById("tgPlay").addEventListener("click", () => setPage(0));
 document.getElementById("tgSetup").addEventListener("click", () => setPage(1));
+document.getElementById("tgTrack").addEventListener("click", () => setPage(2));
 
 /* ---------- the five tracks, live: mark_core's track logic ---------- */
 /*
