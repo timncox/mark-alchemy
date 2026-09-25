@@ -1,19 +1,26 @@
 /*
- * launchpad -- a Novation Launchpad Mini MK2 on the front USB-C, with the
+ * launchpad -- a Novation Launchpad Mini MK3 on the front USB-C, with the
  * Alchemy Lab as the USB host.
  *
  * Shared by copy with smack-alchemy, belt-alchemy and seq-alchemy.
  *
  * The Lab's front port has no VBUS (Hermetic: "identical to ... the Daisy
- * itself, minus VBUS"), so the Launchpad needs 5 V from a powered OTG
- * adapter. libDaisy runs one USB role per boot on that port: while this
- * driver owns it there is no HostLink and no DFU-over-USB; flash through
- * the SD picker, or B3 at power-on.
+ * itself, minus VBUS"), so the Launchpad needs 5 V injected -- by a PASSIVE
+ * injector: libDaisy's host has no hub class, and a powered "OTG adapter"
+ * with a hub inside enumerates as the hub (seen 2026-09-25: VIA 2109:2817).
+ * libDaisy runs one USB role per boot on that port: while this driver owns
+ * it there is no HostLink and no DFU-over-USB.
  *
- * MK2 protocol (Launchpad S / Mini programmer's reference): X-Y layout,
- * grid pad (x, y) = note 16*y + x on channel 1; the right-hand round buttons
- * are x = 8; the top round buttons are CC 104..111. Velocity 127 = press,
- * 0 = release. LED colour = velocity (green << 4) | red | 0x0C, each 0..3.
+ * MK3 Programmer mode (Launchpad Mini MK3 programmer's reference): entered
+ * with SysEx F0 00 20 29 02 0D 0E 01 F7. Grid pad = note 10*row + col,
+ * row 1 at the BOTTOM, col 1 at the left; the right-hand column is CC
+ * 19, 29 .. 89; the top row is CC 91..98; the logo is 99. Presses are
+ * velocity/value 127, releases 0. LED colour = palette index (0..127) as
+ * the velocity/value on channel 1 (static).
+ *
+ * The MK3 has two USB-MIDI cables (DAW and MIDI). Which is which is not
+ * assumed: the mode switch and the LEDs go to both, and incoming events are
+ * taken from whichever cable delivers the first one.
  *
  * Call Init() once, Poll() every millisecond from the control loop (never
  * from the audio callback). Poll runs the USB host, turns incoming packets
@@ -26,20 +33,20 @@
 namespace lp
 {
 
-/* Colours: red 0..3, green 0..3. */
-constexpr uint8_t Col(uint8_t red, uint8_t green)
-{
-    return (uint8_t)(((green & 3u) << 4) | (red & 3u) | 0x0Cu);
-}
-constexpr uint8_t kOff      = Col(0, 0);
-constexpr uint8_t kRed      = Col(3, 0);
-constexpr uint8_t kRedDim   = Col(1, 0);
-constexpr uint8_t kGreen    = Col(0, 3);
-constexpr uint8_t kGreenDim = Col(0, 1);
-constexpr uint8_t kAmber    = Col(3, 3);
-constexpr uint8_t kAmberDim = Col(1, 1);
-constexpr uint8_t kYellow   = Col(2, 3);
-constexpr uint8_t kOrange   = Col(3, 2);
+/* Colours: MK3 palette indices. */
+constexpr uint8_t kOff       = 0;
+constexpr uint8_t kWhite     = 3;
+constexpr uint8_t kRed       = 5;
+constexpr uint8_t kRedDim    = 7;
+constexpr uint8_t kOrange    = 9;
+constexpr uint8_t kAmber     = 13;   /* yellow in the palette */
+constexpr uint8_t kAmberDim  = 15;
+constexpr uint8_t kYellow    = 13;
+constexpr uint8_t kGreen     = 21;
+constexpr uint8_t kGreenDim  = 23;
+constexpr uint8_t kCyan      = 37;
+constexpr uint8_t kBlue      = 45;
+constexpr uint8_t kMagenta   = 53;
 
 enum class Kind : uint8_t { Grid, Side, Top };
 
@@ -60,6 +67,7 @@ bool PopEvent(Event* e);
 void SetGrid(uint8_t x, uint8_t y, uint8_t col);
 void SetSide(uint8_t y, uint8_t col);
 void SetTop(uint8_t x, uint8_t col);
+void SetLogo(uint8_t col);
 void ClearAll();
 
 /* Where the USB host is, for a status light:

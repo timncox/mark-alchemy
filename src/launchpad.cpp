@@ -19,12 +19,15 @@ namespace
 constexpr int kGrid  = 64;
 constexpr int kSide0 = 64;
 constexpr int kTop0  = 72;
-constexpr int kCells = 80;
+constexpr int kLogo  = 80;
+constexpr int kCells = 81;
+constexpr uint8_t kUnknown = 0xFF; /* not yet sent since connect */
 
 daisy::USBHostHandle g_usbh;
 bool                 g_ready     = false; /* MIDI class active, pipes open */
 bool                 g_failed    = false; /* abort, unsupported or error seen */
-bool                 g_need_init = false; /* send reset + layout next */
+bool                 g_need_init = false; /* send Programmer mode next */
+int                  g_rx_cable  = -1;    /* cable events are taken from */
 
 uint8_t g_want[kCells];
 uint8_t g_sent[kCells];
@@ -71,24 +74,26 @@ void on_rx(uint8_t* buf, size_t len, void*)
 {
     for (size_t i = 0; i + 3 < len; i += 4)
     {
-        const uint8_t cin = buf[i] & 0x0F;
-        const uint8_t st  = buf[i + 1] & 0xF0;
-        const uint8_t d1  = buf[i + 2];
-        const uint8_t d2  = buf[i + 3];
-        if (cin == 0) continue; /* padding */
+        const uint8_t cin   = buf[i] & 0x0F;
+        const int     cable = buf[i] >> 4;
+        const uint8_t st    = buf[i + 1] & 0xF0;
+        const uint8_t d1    = buf[i + 2];
+        const uint8_t d2    = buf[i + 3];
+        if (cin != 0x8 && cin != 0x9 && cin != 0xB) continue; /* notes and CCs only */
+        if (g_rx_cable < 0) g_rx_cable = cable;
+        if (cable != g_rx_cable) continue; /* the same press may come on both */
         g_rx_count++;
-        if (st == 0x90 || st == 0x80)
+        const int row = d1 / 10, col = d1 % 10;
+        if (row < 1 || row > 9 || col < 1 || col > 9) continue;
+        const bool down = (st != 0x80) && d2 > 0;
+        if (row == 9)
         {
-            const bool    down = (st == 0x90) && d2 > 0;
-            const uint8_t y = d1 >> 4, x = d1 & 0x0F;
-            if (y > 7) continue;
-            if (x < 8)       push(Kind::Grid, x, y, down);
-            else if (x == 8) push(Kind::Side, 0, y, down);
+            if (col <= 8) push(Kind::Top, (uint8_t)(col - 1), 0, down);
         }
-        else if (st == 0xB0 && d1 >= 104 && d1 <= 111)
-        {
-            push(Kind::Top, (uint8_t)(d1 - 104), 0, d2 > 0);
-        }
+        else if (col == 9)
+            push(Kind::Side, 0, (uint8_t)(8 - row), down);
+        else
+            push(Kind::Grid, (uint8_t)(col - 1), (uint8_t)(8 - row), down);
     }
 }
 
@@ -98,6 +103,7 @@ void on_class_active(void*)
     USBH_MIDI_SetReceiveCallback(&hUsbHostHS, on_rx, nullptr);
     g_ready     = true;
     g_need_init = true;
+    g_rx_cable  = -1;
 }
 
 void on_error(void*) { g_failed = true; }
@@ -115,20 +121,19 @@ uint16_t out_ep_size()
     return h->OutEpSize;
 }
 
-void cell_packet(int i, uint8_t col, uint8_t* p)
+/* One LED as a USB-MIDI packet on the given cable. */
+void cell_packet(int i, uint8_t col, uint8_t cable, uint8_t* p)
 {
-    if (i < kGrid)
-    {
-        p[0] = 0x09; p[1] = 0x90; p[2] = (uint8_t)(16 * (i / 8) + (i % 8)); p[3] = col;
-    }
-    else if (i < kTop0)
-    {
-        p[0] = 0x09; p[1] = 0x90; p[2] = (uint8_t)(16 * (i - kSide0) + 8); p[3] = col;
-    }
-    else
-    {
-        p[0] = 0x0B; p[1] = 0xB0; p[2] = (uint8_t)(104 + (i - kTop0)); p[3] = col;
-    }
+    uint8_t note;
+    bool    cc;
+    if (i < kGrid)        { note = (uint8_t)(10 * (8 - i / 8) + (i % 8) + 1); cc = false; }
+    else if (i < kTop0)   { note = (uint8_t)(10 * (8 - (i - kSide0)) + 9);     cc = true;  }
+    else if (i < kLogo)   { note = (uint8_t)(91 + (i - kTop0));                cc = true;  }
+    else                  { note = 99;                                          cc = true;  }
+    p[0] = (uint8_t)((cable << 4) | (cc ? 0x0B : 0x09));
+    p[1] = cc ? 0xB0 : 0x90;
+    p[2] = note;
+    p[3] = col;
 }
 
 void flush()
@@ -144,21 +149,25 @@ void flush()
     bool init   = g_need_init;
     if (init)
     {
-        /* Reset (all LEDs off), then the X-Y layout in case a DAW left the
-         * pad in drum-rack mode. */
-        const uint8_t pk[8] = {0x0B, 0xB0, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0x01};
-        memcpy(g_tx, pk, 8);
-        n = 2;
+        /* Programmer mode, F0 00 20 29 02 0D 0E 01 F7, on both cables. */
+        static const uint8_t pk[12] = {0x04, 0xF0, 0x00, 0x20, 0x04, 0x29, 0x02, 0x0D,
+                                       0x07, 0x0E, 0x01, 0xF7};
+        memcpy(g_tx, pk, 12);
+        memcpy(g_tx + 12, pk, 12);
+        for (int k = 0; k < 3; k++) g_tx[12 + 4 * k] |= 0x10;
+        n = 6;
     }
     else
     {
-        for (int k = 0; k < kCells && n < max_pk && sent_n < 16; k++)
+        /* Each changed LED goes out on both cables: two packets. */
+        for (int k = 0; k < kCells && n + 2 <= max_pk && sent_n < 16; k++)
         {
             const int i = (g_scan + k) % kCells;
             if (g_want[i] == g_sent[i]) continue;
-            cell_packet(i, g_want[i], &g_tx[4 * n]);
+            cell_packet(i, g_want[i], 0, &g_tx[4 * n]);
+            cell_packet(i, g_want[i], 1, &g_tx[4 * (n + 1)]);
             sent_idx[sent_n++] = i;
-            n++;
+            n += 2;
         }
         if (n == 0) return;
     }
@@ -170,7 +179,7 @@ void flush()
     if (init)
     {
         g_need_init = false;
-        for (int i = 0; i < kCells; i++) g_sent[i] = kOff; /* reset cleared them */
+        for (int i = 0; i < kCells; i++) g_sent[i] = kUnknown; /* send every LED */
     }
     else
     {
@@ -262,6 +271,8 @@ void SetTop(uint8_t x, uint8_t col)
 {
     if (x < 8) g_want[kTop0 + x] = col;
 }
+void SetLogo(uint8_t col) { g_want[kLogo] = col; }
+
 void ClearAll()
 {
     for (int i = 0; i < kCells; i++) g_want[i] = kOff;

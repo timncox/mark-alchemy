@@ -791,7 +791,7 @@ static Press b1, b2, b3;   /* b3.fired = the press met B2: a chord, not a tap */
 static volatile bool G_NAV_TAP  = false;
 static uint8_t       g_nav_page = kPagePlay;   /* the page B3 returns to */
 
-/* ---- Launchpad Mini MK2 -----------------------------------------------------
+/* ---- Launchpad Mini MK3 -----------------------------------------------------
  *
  *   rows 1-5 = tracks 1-5
  *     pad 1   REC/PLAY: tap = record -> play -> overdub (the track's B1),
@@ -901,6 +901,7 @@ static void lp_paint(uint32_t t_ms)
         for (int x = 2; x < 8; x++)
             lp::SetGrid((uint8_t)x, (uint8_t)ti, x == head ? c : lp::kOff);
     }
+    lp::SetLogo(lp::kGreen);
     lp::SetTop(0, lp::kGreenDim);
     lp::SetTop(1, G_UNDO == 1 ? lp::kAmber : (G_UNDO == 2 ? lp::kGreen : lp::kOff));
 }
@@ -1429,7 +1430,7 @@ int main(void)
         .Ident("usb").Name("USB port")
         .Help("**Mac**: the front USB-C is HostLink, for the web programmer, "
               "presets and the card. **Launchpad**: the Lab is the USB host "
-              "for a Launchpad Mini MK2 (5 V from a powered OTG adapter). "
+              "for a Launchpad Mini MK3 (5 V from a passive injector, not a hub). "
               "Takes effect when the module next powers up.");
     clock_ratio = settings.Page(kSettingsMain).Pot(4)
         .Selector(kRatioLabels).Default(1)
