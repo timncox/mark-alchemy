@@ -55,6 +55,7 @@
 #include "clock_adapter.h"
 #include "extras.h"
 #include "picker.h"
+#include "launchpad.h"
 #include "versio_alloc.h"
 
 /* versio_alloc.h first, then the engine inside extern "C" -- see the note in
@@ -155,6 +156,7 @@ static const char* const kDubLabels[2]    = {"Overdub", "Replace"};
 static const char* const kPlayLabels[2]   = {"Multi", "Single"};
 static const char* const kDryLabels[2]    = {"Through", "Muted"};
 static const char* const kRatioLabels[3]  = {"/2", "=1", "x2"};
+static const char* const kUsbLabels[2]    = {"Mac", "Launchpad"};
 static const char* const kShotLabels[2]   = {"Loop", "One-shot"};
 static const char* const kRevLabels[2]    = {"Forward", "Reverse"};
 static const char* const kFxLabels[7]     = {"Off", "Low-pass", "High-pass", "Crush",
@@ -418,7 +420,11 @@ static hostlink::FsExtension fs_ext(sd);
 static hostlink::Host host(presets, "mark_alchemy", "Mark",
                            MARK_VERSION, MARK_GIT_HASH);
 static MarkExtras    extras;
-static SelectorHandle dry_input, clock_ratio;
+static SelectorHandle dry_input, clock_ratio, usb_port;
+
+/* The front USB-C this boot: false = HostLink to the Mac (the default),
+ * true = USB host for a Launchpad. One role per boot (libDaisy). */
+static bool g_lp_mode = false;
 
 #ifdef MARK_BENCH_USB
 /* HostLink on the Seed's own micro-USB instead of the front panel, for the
@@ -772,8 +778,105 @@ static Press b1, b2, b3;   /* b3.fired = the press met B2: a chord, not a tap */
 static volatile bool G_NAV_TAP  = false;
 static uint8_t       g_nav_page = kPagePlay;   /* the page B3 returns to */
 
+/* ---- Launchpad Mini MK2 -----------------------------------------------------
+ *
+ *   rows 1-5 = tracks 1-5
+ *     pad 1   REC/PLAY: tap = record -> play -> overdub (the track's B1),
+ *             hold 0.6 s = undo/redo, hold 2 s = clear. Colour = the track:
+ *             red rec, green play, amber dub, dim green stopped, dim red
+ *             empty; blinks while a change waits for the bar.
+ *     pad 2   STOP the track
+ *     pads 3-8 the playhead, in the track's colour
+ *   top 1     ALL start/stop       top 2  UNDO/REDO (amber undo, green redo)
+ */
+struct LpHold { bool down; bool fired; uint32_t t0; };
+static LpHold g_lp_rec[MARK_TRACKS];
+
+static void track_key(int ti, const char* what)
+{
+    char key[24];
+    snprintf(key, sizeof key, "t%d_%s", ti + 1, what);
+    mark_set_param(M, key, "1");
+}
+
+static void lp_poll(uint32_t now)
+{
+    lp::Poll(now);
+    lp::Event e;
+    const bool live = !settings.IsActive();
+    while (lp::PopEvent(&e))
+    {
+        if (!live) continue;
+        if (e.kind == lp::Kind::Grid && e.y < MARK_TRACKS)
+        {
+            const int ti = e.y;
+            if (e.x == 0)
+            {
+                LpHold& h = g_lp_rec[ti];
+                if (e.down) { h.down = true; h.fired = false; h.t0 = now; }
+                else if (h.down)
+                {
+                    h.down = false;
+                    if (!h.fired)
+                    {
+                        if (now - h.t0 > UNDO_PRESS_MS) mark_set_param(M, "undo", "1");
+                        else                            track_key(ti, "btn");
+                    }
+                }
+            }
+            else if (e.x == 1 && e.down)
+                track_key(ti, "stop");
+        }
+        else if (e.kind == lp::Kind::Top && e.down)
+        {
+            if (e.x == 0) mark_set_param(M, "all_btn", "1");
+            if (e.x == 1) mark_set_param(M, "undo", "1");
+        }
+    }
+    for (int ti = 0; ti < MARK_TRACKS; ti++)
+    {
+        LpHold& h = g_lp_rec[ti];
+        if (h.down && !h.fired && now - h.t0 > CLEAR_PRESS_MS)
+        {
+            track_key(ti, "clear");
+            h.fired = true;
+        }
+    }
+}
+
+static void lp_paint(uint32_t t_ms)
+{
+    if (!lp::Connected()) return;
+    const bool blink = (t_ms / 150u) & 1u;
+    for (int ti = 0; ti < MARK_TRACKS; ti++)
+    {
+        uint8_t c;
+        switch (G_TSTATE[ti])
+        {
+            case MK_REC:  c = lp::kRed;      break;
+            case MK_PLAY: c = lp::kGreen;    break;
+            case MK_DUB:  c = lp::kAmber;    break;
+            case MK_STOP: c = lp::kGreenDim; break;
+            default:      c = lp::kRedDim;   break;
+        }
+        if (G_TPEND[ti] && blink) c = lp::kOff;
+        lp::SetGrid(0, (uint8_t)ti, c);
+        const bool has = G_TSTATE[ti] != MK_EMPTY;
+        lp::SetGrid(1, (uint8_t)ti, has ? lp::kRedDim : lp::kOff);
+        const bool moving = G_TSTATE[ti] == MK_PLAY || G_TSTATE[ti] == MK_DUB
+                            || G_TSTATE[ti] == MK_REC;
+        const int head = moving ? 2 + (G_TPOS[ti] * 6) / 128 : -1;
+        for (int x = 2; x < 8; x++)
+            lp::SetGrid((uint8_t)x, (uint8_t)ti, x == head ? c : lp::kOff);
+    }
+    lp::SetTop(0, lp::kGreenDim);
+    lp::SetTop(1, G_UNDO == 1 ? lp::kAmber : (G_UNDO == 2 ? lp::kGreen : lp::kOff));
+}
+
 static void OnPoll(uint32_t now)
 {
+    if (g_lp_mode) lp_poll(now);
+
     if (settings.IsActive())
     {
         b1.down = b2.down = b3.down = false;
@@ -1007,6 +1110,7 @@ static void OnFrame(void)
         char buf[16];
         if (mark_get_param(M, "undo_avail", buf, sizeof buf) > 0) G_UNDO = atoi(buf);
     }
+    if (g_lp_mode) lp_paint(System::GetNow());
 
     /* Worst block this session. Clamped: an overrunning callback can report
      * over 100%, and the readout wants 0..1. */
@@ -1244,6 +1348,13 @@ int main(void)
         .Help("**Through** mixes what comes in on J1/J2 into the output, as "
               "the RC-505 does. **Muted** outputs the loops only, for a mixer "
               "that already has the dry signal.");
+    usb_port = settings.Page(kSettingsMain).Pot(5)
+        .Selector(kUsbLabels).Default(0)
+        .Ident("usb").Name("USB port")
+        .Help("**Mac**: the front USB-C is HostLink, for the web programmer, "
+              "presets and the card. **Launchpad**: the Lab is the USB host "
+              "for a Launchpad Mini MK2 (5 V from a powered OTG adapter). "
+              "Takes effect when the module next powers up.");
     clock_ratio = settings.Page(kSettingsMain).Pot(4)
         .Selector(kRatioLabels).Default(1)
         .Ident("clk.ratio").Name("Clock Ratio")
@@ -1334,19 +1445,25 @@ int main(void)
     g_saved_peak     = 0.0f;
     g_readout_until  = System::GetNow() + 2500u;
 
+    /* USB: one role per boot on the front port, decided by the saved
+     * setting. HostLink only starts from its first Poll, so leaving it out
+     * of the loop keeps the device stack off the port. */
+    g_lp_mode = (int)usb_port.Value() == 1;
+    if (g_lp_mode) lp::Init();
+
     hw.StartAudio(AudioCallback);
     cpu.Reset();
 
     loop.Use(pager)
         .Use(settings)
         .Use(cv_matrix)
-        .Use(host)
         .Use(play_page)
         .Use(setup_page)
         .Use(track_page)
         .OnFrame(OnFrame)
         .OnPoll(OnPoll)
         .OnRender(OnRender);
+    if (!g_lp_mode) loop.Use(host);
 
     for (;;) loop.Tick();
 }
