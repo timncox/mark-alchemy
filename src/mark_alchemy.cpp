@@ -56,6 +56,7 @@
 #include "extras.h"
 #include "picker.h"
 #include "launchpad.h"
+#include "ff.h"
 #include "versio_alloc.h"
 
 /* versio_alloc.h first, then the engine inside extern "C" -- see the note in
@@ -856,6 +857,25 @@ static void lp_poll(uint32_t now)
     }
 }
 
+/* Write the host report to /lpdiag.txt once, 15 s after the host started,
+ * unless a Launchpad came up. Buffers where SDMMC DMA can reach them. */
+alignas(32) static ALCHEMY_SDMMC_BSS FIL  s_lpdiag_fil;
+alignas(32) static ALCHEMY_SDMMC_BSS char s_lpdiag_buf[4096];
+static bool g_lpdiag_done = false;
+
+static void lp_write_report(uint32_t now)
+{
+    if (g_lpdiag_done || g_lp_stage < 2 || now - g_lp_boot_ms < 17000u) return;
+    if (lp::Connected()) { g_lpdiag_done = true; return; }
+    if (picker::Busy() || !sd.EnsureMounted(now)) return;
+    g_lpdiag_done = true;
+    const int n = lp::Report(s_lpdiag_buf, (int)sizeof s_lpdiag_buf);
+    if (f_open(&s_lpdiag_fil, "/lpdiag.txt", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return;
+    UINT w = 0;
+    f_write(&s_lpdiag_fil, s_lpdiag_buf, (UINT)n, &w);
+    f_close(&s_lpdiag_fil);
+}
+
 static void lp_paint(uint32_t t_ms)
 {
     if (!lp::Connected()) return;
@@ -1135,7 +1155,7 @@ static void OnFrame(void)
         char buf[16];
         if (mark_get_param(M, "undo_avail", buf, sizeof buf) > 0) G_UNDO = atoi(buf);
     }
-    if (g_lp_mode) lp_paint(System::GetNow());
+    if (g_lp_mode) { lp_paint(System::GetNow()); lp_write_report(System::GetNow()); }
 
     /* Worst block this session. Clamped: an overrunning callback can report
      * over 100%, and the readout wants 0..1. */

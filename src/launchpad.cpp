@@ -1,6 +1,7 @@
 /* launchpad -- see launchpad.h. */
 #include "launchpad.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "daisy_core.h"
@@ -40,6 +41,22 @@ uint32_t g_rx_count = 0, g_tx_count = 0;
 
 Diag    g_diag     = {0, 0, false, 0};
 uint8_t g_last_gs  = 0;
+uint8_t g_last_es  = 0;
+
+/* Transition trace: (ms, host state, enum state). */
+struct Tr { uint32_t t; uint8_t gs, es; };
+constexpr int kTrace = 96;
+Tr      g_tr[kTrace];
+int     g_tr_n = 0;
+
+/* What the host held when it reached CHECK_CLASS the first time. */
+bool     g_cc_seen = false;
+uint8_t  g_cc_dev[18];
+uint8_t  g_cc_cfg[64];
+uint16_t g_cc_total = 0;
+uint8_t  g_cc_nif = 0, g_cc_if0c = 0, g_cc_if1c = 0, g_cc_if1s = 0, g_cc_if1ep = 0;
+uint16_t g_cc_vid = 0, g_cc_pid = 0;
+uint32_t g_cc_classnum = 0;
 
 void push(Kind k, uint8_t x, uint8_t y, bool down)
 {
@@ -175,10 +192,29 @@ void Init()
     g_usbh.RegisterClass(USBH_MIDI_CLASS);
 }
 
-void Poll(uint32_t)
+void Poll(uint32_t now)
 {
     g_usbh.Process();
     const uint8_t gs = (uint8_t)hUsbHostHS.gState;
+    const uint8_t es = (uint8_t)hUsbHostHS.EnumState;
+    if ((gs != g_last_gs || es != g_last_es) && g_tr_n < kTrace)
+        g_tr[g_tr_n++] = Tr{now, gs, es};
+    g_last_es = es;
+    if (gs == HOST_CHECK_CLASS && !g_cc_seen)
+    {
+        g_cc_seen = true;
+        memcpy(g_cc_dev, hUsbHostHS.device.Data, sizeof g_cc_dev);
+        memcpy(g_cc_cfg, hUsbHostHS.device.CfgDesc_Raw, sizeof g_cc_cfg);
+        g_cc_total    = hUsbHostHS.device.CfgDesc.wTotalLength;
+        g_cc_nif      = hUsbHostHS.device.CfgDesc.bNumInterfaces;
+        g_cc_if0c     = hUsbHostHS.device.CfgDesc.Itf_Desc[0].bInterfaceClass;
+        g_cc_if1c     = hUsbHostHS.device.CfgDesc.Itf_Desc[1].bInterfaceClass;
+        g_cc_if1s     = hUsbHostHS.device.CfgDesc.Itf_Desc[1].bInterfaceSubClass;
+        g_cc_if1ep    = hUsbHostHS.device.CfgDesc.Itf_Desc[1].bNumEndpoints;
+        g_cc_vid      = hUsbHostHS.device.DevDesc.idVendor;
+        g_cc_pid      = hUsbHostHS.device.DevDesc.idProduct;
+        g_cc_classnum = hUsbHostHS.ClassNumber;
+    }
     if (gs == HOST_ABORT_STATE)
     {
         if (g_last_gs != HOST_ABORT_STATE)
@@ -232,6 +268,35 @@ void ClearAll()
 }
 
 Diag Diagnostics() { return g_diag; }
+
+int Report(char* b, int cap)
+{
+    int n = 0;
+#define OUT(...) do { if (n < cap) n += snprintf(b + n, (size_t)(cap - n), __VA_ARGS__); } while (0)
+    OUT("launchpad host report\n");
+    OUT("aborts %u, state before first abort %u, enum at first abort %u, vid_ok %d, ready %d\n",
+        (unsigned)g_diag.aborts, (unsigned)g_diag.state_before_abort,
+        (unsigned)g_diag.enum_at_abort, (int)g_diag.vid_ok, (int)g_ready);
+    OUT("rx %lu tx %lu\n", (unsigned long)g_rx_count, (unsigned long)g_tx_count);
+    if (g_cc_seen)
+    {
+        OUT("at CHECK_CLASS: vid %04x pid %04x classes registered %lu\n",
+            g_cc_vid, g_cc_pid, (unsigned long)g_cc_classnum);
+        OUT("cfg total %u, interfaces %u, if0 class %u, if1 class %u sub %u eps %u\n",
+            g_cc_total, g_cc_nif, g_cc_if0c, g_cc_if1c, g_cc_if1s, g_cc_if1ep);
+        OUT("device.Data:");
+        for (int i = 0; i < 18; i++) OUT(" %02x", g_cc_dev[i]);
+        OUT("\nCfgDesc_Raw:");
+        for (int i = 0; i < 64; i++) OUT("%s%02x", (i % 16) ? " " : "\n  ", g_cc_cfg[i]);
+        OUT("\n");
+    }
+    else
+        OUT("CHECK_CLASS never reached\n");
+    OUT("trace (ms gState enumState):\n");
+    for (int i = 0; i < g_tr_n; i++) OUT("  %lu %u %u\n", (unsigned long)g_tr[i].t, g_tr[i].gs, g_tr[i].es);
+#undef OUT
+    return n < cap ? n : cap;
+}
 
 uint32_t RxCount() { return g_rx_count; }
 uint32_t TxCount() { return g_tx_count; }

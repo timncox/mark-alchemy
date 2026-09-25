@@ -79,6 +79,10 @@ struct Diag
 };
 Diag Diagnostics();
 
+/* A text report of the host's state changes and what it read from the
+ * device, for writing to the SD card. Returns the length written. */
+int Report(char* buf, int cap);
+
 /* Diagnostics for a readout: packets received, transfers sent. */
 uint32_t RxCount();
 uint32_t TxCount();
