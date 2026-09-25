@@ -57,6 +57,7 @@
 #include "picker.h"
 #include "launchpad.h"
 #include "usb_shared.h"
+#include "usb_audio.h"
 #include "ff.h"
 #include "versio_alloc.h"
 
@@ -158,7 +159,7 @@ static const char* const kDubLabels[2]    = {"Overdub", "Replace"};
 static const char* const kPlayLabels[2]   = {"Multi", "Single"};
 static const char* const kDryLabels[2]    = {"Through", "Muted"};
 static const char* const kRatioLabels[3]  = {"/2", "=1", "x2"};
-static const char* const kUsbLabels[2]    = {"Mac", "Launchpad"};
+static const char* const kUsbLabels[3]    = {"Mac", "Launchpad", "Audio"};
 static const char* const kShotLabels[2]   = {"Loop", "One-shot"};
 static const char* const kRevLabels[2]    = {"Forward", "Reverse"};
 static const char* const kFxLabels[7]     = {"Off", "Low-pass", "High-pass", "Crush",
@@ -427,6 +428,11 @@ static SelectorHandle dry_input, clock_ratio, usb_port;
 /* The front USB-C this boot: false = HostLink to the Mac (the default),
  * true = USB host for a Launchpad. One role per boot (libDaisy). */
 static bool g_lp_mode = false;
+
+/* true = the front USB-C is a USB audio interface this boot (usb_audio.h):
+ * computer -> J9/J10, J1/J2 -> computer, and the looper is bypassed. B2:
+ * cyan waiting for a computer, yellow connected, green streaming. */
+static bool g_usb_audio = false;
 
 /* Launchpad start-up, staged so a hang shows where it happened. The host
  * starts 2 s after boot, once the module is otherwise running; B2 shows the
@@ -876,6 +882,38 @@ static void lp_write_report(uint32_t now)
     f_close(&s_lpdiag_fil);
 }
 
+/* The USB audio counters, to the card as /uacdiag.txt 20 s after boot and
+ * every 30 s after that, for reading back in Mac mode. */
+static char     s_uacdiag_buf[512];
+static uint32_t g_uacdiag_next = 20000u;
+
+static void uac_write_report(uint32_t now)
+{
+    if (!g_usb_audio || now - g_lp_boot_ms < g_uacdiag_next) return;
+    if (picker::Busy() || !sd.EnsureMounted(now)) return;
+    g_uacdiag_next = now - g_lp_boot_ms + 30000u;
+    const UAC_Info u = UAC_GetInfo();
+    const int n = snprintf(s_uacdiag_buf, sizeof s_uacdiag_buf,
+        "t=%lu ms state=%u out_on=%u in_on=%u sofs=%lu\n"
+        "out: packets=%lu underruns=%lu overruns=%lu incomplete=%lu fill=%d\n"
+        "in:  packets=%lu underruns=%lu overruns=%lu incomplete=%lu fill=%d\n"
+        "rate=%d.%03d frames/ms feedback=0x%06lx cpu_avg=%d%%\n",
+        (unsigned long)(now - g_lp_boot_ms), u.state, u.out_on, u.in_on,
+        (unsigned long)u.sofs, (unsigned long)u.out_packets,
+        (unsigned long)u.out_underruns, (unsigned long)u.out_overruns,
+        (unsigned long)u.out_incomplete, (int)u.out_fill,
+        (unsigned long)u.in_packets, (unsigned long)u.in_underruns,
+        (unsigned long)u.in_overruns, (unsigned long)u.in_incomplete,
+        (int)u.in_fill, (int)u.rate, (int)((u.rate - (int)u.rate) * 1000.0f),
+        (unsigned long)u.feedback, (int)(cpu.GetAvgCpuLoad() * 100.0f));
+    if (n <= 0) return;
+    if (f_open(&s_lpdiag_fil, "/uacdiag.txt", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return;
+    UINT w = 0;
+    f_write(&s_lpdiag_fil, s_uacdiag_buf,
+            (UINT)(n < (int)sizeof s_uacdiag_buf ? n : (int)sizeof s_uacdiag_buf - 1), &w);
+    f_close(&s_lpdiag_fil);
+}
+
 /* ---- Launch Control XL -----------------------------------------------------
  *
  *   faders 1-5  track LEVELs (the PLAY pots' stored values: the pot catches)
@@ -1228,6 +1266,7 @@ static void OnFrame(void)
         if (mark_get_param(M, "undo_avail", buf, sizeof buf) > 0) G_UNDO = atoi(buf);
     }
     if (g_lp_mode) { lp_paint(System::GetNow()); xl_frame(now); lp_write_report(System::GetNow()); }
+    if (g_usb_audio) uac_write_report(System::GetNow());
 
     /* Worst block this session. Clamped: an overrunning callback can report
      * over 100%, and the readout wants 0..1. */
@@ -1371,6 +1410,16 @@ static void OnRender(uint32_t t_ms)
             {0x00, 0xFF, 0x00}};  /* 5 MIDI device active        */
         ck = kStage[g_lp_stage < 6 ? g_lp_stage : 0];
     }
+    if (g_usb_audio)
+    {
+        static const LedPanel::Rgb kUac[4] = {
+            {0x40, 0x00, 0x40},   /* not started                   */
+            {0x00, 0xC0, 0xC0},   /* waiting for a computer        */
+            {0xFF, 0xC0, 0x00},   /* connected, no stream open     */
+            {0x00, 0xFF, 0x00}};  /* streaming                     */
+        const uint8_t st = UAC_State();
+        ck = kUac[st < 4 ? st : 0];
+    }
     L.SetButtonPair(kButtonB2, L.ScaleGlobal(ck));
 
     /* Which page a release of B3 lands on: dim violet PLAY, amber TRACK. */
@@ -1398,6 +1447,14 @@ static void AudioCallback(daisy::AudioHandle::InputBuffer  in,
                           size_t                           size)
 {
     cpu.OnBlockStart();
+
+    /* Audio interface mode: the jacks belong to the computer. */
+    if (g_usb_audio)
+    {
+        UAC_Process(in, out, size);
+        cpu.OnBlockEnd();
+        return;
+    }
 
     /* Controls are NOT read here; set_param stays on the control thread.
      * What is per-block: the three gate jacks need frame-accurate edges,
@@ -1516,8 +1573,11 @@ int main(void)
         .Ident("usb").Name("USB port")
         .Help("**Mac**: the front USB-C is HostLink, for the web programmer, "
               "presets and the card. **Launchpad**: the Lab is the USB host "
-              "for a Launchpad Mini MK3 (5 V from a passive injector, not a hub). "
-              "Takes effect when the module next powers up.");
+              "for a Launchpad Mini MK3 and a Launch Control XL (5 V from a "
+              "powered dongle). **Audio**: the Lab is a USB audio interface, "
+              "2 in (J1/J2) and 2 out (J9/J10) at 48 kHz, and the looper is "
+              "bypassed. Takes effect when the module next powers up; hold B1 "
+              "while powering up for Mac mode once.");
     clock_ratio = settings.Page(kSettingsMain).Pot(4)
         .Selector(kRatioLabels).Default(1)
         .Ident("clk.ratio").Name("Clock Ratio")
@@ -1627,7 +1687,9 @@ int main(void)
     }
     force_mac = hw.buttons[kButtonB1].Pressed();
     g_lp_mode    = (int)usb_port.Value() == 1 && !force_mac;
+    g_usb_audio  = (int)usb_port.Value() == 2 && !force_mac;
     g_lp_boot_ms = System::GetNow();
+    if (g_usb_audio) UAC_Start("Alchemy Lab");
 
     hw.StartAudio(AudioCallback);
     cpu.Reset();
@@ -1641,7 +1703,7 @@ int main(void)
         .OnFrame(OnFrame)
         .OnPoll(OnPoll)
         .OnRender(OnRender);
-    if (!g_lp_mode) loop.Use(host);
+    if (!g_lp_mode && !g_usb_audio) loop.Use(host);
 
     for (;;) loop.Tick();
 }
