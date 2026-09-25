@@ -86,8 +86,8 @@ static const uint8_t k_cfg[CFG_LEN] = {
     0x01, 0x00, EP_FB,
     /* CS endpoint: no controls */
     0x07, 0x25, 0x01, 0x00, 0x00, 0x00, 0x00,
-    /* EP 0x81: isochronous feedback, 3 bytes, refresh 2^1 ms */
-    0x09, USB_DESC_TYPE_ENDPOINT, EP_FB, 0x01, 0x03, 0x00, 0x01, 0x01, 0x00,
+    /* EP 0x81: isochronous, usage = feedback, 3 bytes, refresh 2^1 ms */
+    0x09, USB_DESC_TYPE_ENDPOINT, EP_FB, 0x11, 0x03, 0x00, 0x01, 0x01, 0x00,
 
     /* interface 2 alt 0: IN, zero bandwidth */
     0x09, USB_DESC_TYPE_INTERFACE, ITF_IN, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00,
@@ -199,11 +199,11 @@ static uint8_t s_in_pkt[UAC_PKT_MAX];
 static uint8_t s_fb_pkt[4];
 static uint8_t s_ctl[64];
 
-/* Rate measurement: codec frames counted by the audio callback, sampled at
- * SOF every 1024 ms. */
+/* Codec frames counted by the audio callback. Only a diagnostic: it moves
+ * in whole blocks (128 frames), far coarser than the real rate mismatch, so
+ * the control loops run on ring fill alone. */
 static volatile uint32_t s_codec_frames;
-static uint32_t          s_rate_mark;
-static float             s_rate = (float)UAC_NOM_FRAMES;
+static uint32_t          s_rate_frames0, s_rate_sofs0;
 static float             s_in_frac;
 static float             s_out_avg, s_in_avg;
 
@@ -282,6 +282,8 @@ static void in_stream(USBD_HandleTypeDef *pdev, uint8_t on)
 }
 
 /* ---- class callbacks -------------------------------------------------------- */
+
+static void send_in(USBD_HandleTypeDef *pdev);
 
 static uint8_t c_init(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 {
@@ -384,7 +386,14 @@ static uint8_t c_data_in(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
     (void)pdev;
     if (epnum == (EP_FB & 0x7Fu)) s_fb_busy = 0u;
-    if (epnum == (EP_IN & 0x7Fu)) { s_in_busy = 0u; s_info.in_packets++; }
+    if (epnum == (EP_IN & 0x7Fu))
+    {
+        s_in_busy = 0u;
+        s_info.in_packets++;
+        /* Queue the next one now: from here the parity is for the next
+         * frame. Waiting for SOF would skip every other frame. */
+        if (s_in_on) send_in(pdev);
+    }
     return (uint8_t)USBD_OK;
 }
 
@@ -413,7 +422,7 @@ static uint8_t c_data_out(USBD_HandleTypeDef *pdev, uint8_t epnum)
 
 static void send_feedback(USBD_HandleTypeDef *pdev)
 {
-    float fb = s_rate;
+    float fb = (float)UAC_NOM_FRAMES;
     if (s_out_primed)
     {
         float corr = (OUT_TARGET - s_out_avg) * 0.002f;
@@ -437,13 +446,19 @@ static void send_in(USBD_HandleTypeDef *pdev)
 
     if (!s_in_primed && fill >= IN_PRIME) s_in_primed = 1u;
 
-    /* Frames this millisecond: the codec's measured rate, nudged by one
-     * when the ring drifts away from its target. */
-    s_in_frac += s_rate;
+    /* Frames this millisecond: 48, plus a proportional share of how far the
+     * ring sits from its target (the same loop as the OUT feedback), so a
+     * fast codec sends the odd 49 and a slow one the odd 47. */
+    float corr = 0.0f;
+    if (s_in_primed)
+    {
+        corr = (s_in_avg - IN_TARGET) * 0.002f;
+        if (corr > 0.2f)  corr = 0.2f;
+        if (corr < -0.2f) corr = -0.2f;
+    }
+    s_in_frac += (float)UAC_NOM_FRAMES + corr;
     uint32_t n = (uint32_t)s_in_frac;
     s_in_frac -= (float)n;
-    if (s_in_avg > IN_TARGET + 32.0f) n++;
-    else if (s_in_avg < IN_TARGET - 32.0f) n--;
     if (n < UAC_NOM_FRAMES - 1u) n = UAC_NOM_FRAMES - 1u;
     if (n > UAC_MAX_FRAMES)      n = UAC_MAX_FRAMES;
 
@@ -471,14 +486,13 @@ static uint8_t c_sof(USBD_HandleTypeDef *pdev)
 {
     const uint32_t sofs = ++s_info.sofs;
 
-    if ((sofs & 1023u) == 0u)
+    if (sofs == 1u)
     {
-        const uint32_t now = s_codec_frames;
-        float r = (float)(now - s_rate_mark) / 1024.0f;
-        s_rate_mark = now;
-        if (r > 47.5f && r < 48.5f) s_rate = r;   /* else: audio not running */
-        s_info.rate = s_rate;
+        s_rate_frames0 = s_codec_frames;
+        s_rate_sofs0   = sofs;
     }
+    else if ((sofs & 1023u) == 0u)   /* cumulative: the block steps average out */
+        s_info.rate = (float)(s_codec_frames - s_rate_frames0) / (float)(sofs - s_rate_sofs0);
 
     if (s_out_on)
     {
@@ -498,10 +512,21 @@ static uint8_t c_sof(USBD_HandleTypeDef *pdev)
 static uint8_t c_iso_in_incomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
     (void)pdev;
-    /* The HAL aborted and disabled the endpoint; the next SOF re-sends. */
-    if (epnum == (EP_FB & 0x7Fu)) s_fb_busy = 0u;
-    if (epnum == (EP_IN & 0x7Fu)) s_in_busy = 0u;
+    /* The HAL aborted and disabled the endpoint. Queue again right away (for
+     * the next frame) rather than at the next SOF: the host reads feedback
+     * every 2 ms, and a SOF-only retry that is one frame out of step with
+     * it would miss every time. */
     s_info.in_incomplete++;
+    if (epnum == (EP_FB & 0x7Fu))
+    {
+        s_fb_busy = 0u;
+        if (s_out_on) send_feedback(pdev);
+    }
+    if (epnum == (EP_IN & 0x7Fu))
+    {
+        s_in_busy = 0u;
+        if (s_in_on) send_in(pdev);
+    }
     return (uint8_t)USBD_OK;
 }
 
