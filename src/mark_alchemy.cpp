@@ -426,6 +426,16 @@ static SelectorHandle dry_input, clock_ratio, usb_port;
  * true = USB host for a Launchpad. One role per boot (libDaisy). */
 static bool g_lp_mode = false;
 
+/* Launchpad start-up, staged so a hang shows where it happened. The host
+ * starts 2 s after boot, once the module is otherwise running; B2 shows the
+ * stage in Launchpad mode:
+ *   1 blue    about to start the USB host (a hang here = in Init)
+ *   2 cyan    host started, nothing enumerated yet
+ *   3 green   a MIDI device is attached and active
+ * Hold B1 while powering up to boot in Mac mode whatever the setting says. */
+static uint8_t  g_lp_stage   = 0;
+static uint32_t g_lp_boot_ms = 0;
+
 #ifdef MARK_BENCH_USB
 /* HostLink on the Seed's own micro-USB instead of the front panel, for the
  * bench-bootloader setup where the front port is not serving anything. */
@@ -875,7 +885,20 @@ static void lp_paint(uint32_t t_ms)
 
 static void OnPoll(uint32_t now)
 {
-    if (g_lp_mode) lp_poll(now);
+    if (g_lp_mode)
+    {
+        if (g_lp_stage == 0 && now - g_lp_boot_ms > 2000u) g_lp_stage = 1;
+        else if (g_lp_stage == 1 && now - g_lp_boot_ms > 2300u)
+        {
+            lp::Init();   /* the blue B2 has been on screen for 300 ms */
+            g_lp_stage = 2;
+        }
+        else if (g_lp_stage >= 2)
+        {
+            lp_poll(now);
+            g_lp_stage = lp::Connected() ? 3 : 2;
+        }
+    }
 
     if (settings.IsActive())
     {
@@ -1211,6 +1234,12 @@ static void OnRender(uint32_t t_ms)
     if (cpu.GetAvgCpuLoad() > 0.80f) ck = kRed;
     else if (clk_locked(&CLK))       ck = kBlue;
     else                             ck = kGrey;
+    if (g_lp_mode)
+    {
+        static const LedPanel::Rgb kStage[4] = {
+            {0x40, 0x00, 0x40}, {0x00, 0x00, 0xFF}, {0x00, 0xC0, 0xC0}, {0x00, 0xFF, 0x00}};
+        ck = kStage[g_lp_stage & 3];
+    }
     L.SetButtonPair(kButtonB2, L.ScaleGlobal(ck));
 
     /* Which page a release of B3 lands on: dim violet PLAY, amber TRACK. */
@@ -1448,8 +1477,10 @@ int main(void)
     /* USB: one role per boot on the front port, decided by the saved
      * setting. HostLink only starts from its first Poll, so leaving it out
      * of the loop keeps the device stack off the port. */
-    g_lp_mode = (int)usb_port.Value() == 1;
-    if (g_lp_mode) lp::Init();
+    hw.ProcessAllControls();
+    const bool force_mac = hw.buttons[kButtonB1].Pressed();
+    g_lp_mode    = (int)usb_port.Value() == 1 && !force_mac;
+    g_lp_boot_ms = System::GetNow();
 
     hw.StartAudio(AudioCallback);
     cpu.Reset();
