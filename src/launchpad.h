@@ -62,7 +62,14 @@ void SetSide(uint8_t y, uint8_t col);
 void SetTop(uint8_t x, uint8_t col);
 void ClearAll();
 
-/* Diagnostics for a readout: packets received, transfers sent, errors. */
+/* Where the USB host is, for a status light:
+ *   0 no device on the wire (no D+ pull-up seen)
+ *   1 a device is attached, enumeration in progress or stuck
+ *   2 the host gave up (abort / unsupported), or an error fired
+ *   3 a MIDI device is active */
+uint8_t Stage();
+
+/* Diagnostics for a readout: packets received, transfers sent. */
 uint32_t RxCount();
 uint32_t TxCount();
 

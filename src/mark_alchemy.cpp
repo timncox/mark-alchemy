@@ -429,9 +429,11 @@ static bool g_lp_mode = false;
 /* Launchpad start-up, staged so a hang shows where it happened. The host
  * starts 2 s after boot, once the module is otherwise running; B2 shows the
  * stage in Launchpad mode:
- *   1 blue    about to start the USB host (a hang here = in Init)
- *   2 cyan    host started, nothing enumerated yet
- *   3 green   a MIDI device is attached and active
+ *   blue      about to start the USB host (a hang here = in Init)
+ *   cyan      host running, no device seen on the wire
+ *   yellow    a device is attached, enumeration in progress or stuck
+ *   red       the host gave up on it (abort, unsupported, error)
+ *   green     a MIDI device is active
  * Hold B1 while powering up to boot in Mac mode whatever the setting says. */
 static uint8_t  g_lp_stage   = 0;
 static uint32_t g_lp_boot_ms = 0;
@@ -896,7 +898,7 @@ static void OnPoll(uint32_t now)
         else if (g_lp_stage >= 2)
         {
             lp_poll(now);
-            g_lp_stage = lp::Connected() ? 3 : 2;
+            g_lp_stage = (uint8_t)(2 + lp::Stage()); /* 2 cyan .. 5 green */
         }
     }
 
@@ -1236,9 +1238,14 @@ static void OnRender(uint32_t t_ms)
     else                             ck = kGrey;
     if (g_lp_mode)
     {
-        static const LedPanel::Rgb kStage[4] = {
-            {0x40, 0x00, 0x40}, {0x00, 0x00, 0xFF}, {0x00, 0xC0, 0xC0}, {0x00, 0xFF, 0x00}};
-        ck = kStage[g_lp_stage & 3];
+        static const LedPanel::Rgb kStage[6] = {
+            {0x40, 0x00, 0x40},   /* 0 waiting for the 2 s start */
+            {0x00, 0x00, 0xFF},   /* 1 about to start the host   */
+            {0x00, 0xC0, 0xC0},   /* 2 no device on the wire     */
+            {0xFF, 0xC0, 0x00},   /* 3 attached, enumerating     */
+            {0xFF, 0x00, 0x00},   /* 4 host gave up              */
+            {0x00, 0xFF, 0x00}};  /* 5 MIDI device active        */
+        ck = kStage[g_lp_stage < 6 ? g_lp_stage : 0];
     }
     L.SetButtonPair(kButtonB2, L.ScaleGlobal(ck));
 

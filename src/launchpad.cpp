@@ -22,6 +22,7 @@ constexpr int kCells = 80;
 
 daisy::USBHostHandle g_usbh;
 bool                 g_ready     = false; /* MIDI class active, pipes open */
+bool                 g_failed    = false; /* abort, unsupported or error seen */
 bool                 g_need_init = false; /* send reset + layout next */
 
 uint8_t g_want[kCells];
@@ -78,6 +79,8 @@ void on_class_active(void*)
     g_ready     = true;
     g_need_init = true;
 }
+
+void on_error(void*) { g_failed = true; }
 
 void on_disconnect(void*)
 {
@@ -164,6 +167,7 @@ void Init()
     daisy::USBHostHandle::Config cfg;
     cfg.disconnect_callback   = on_disconnect;
     cfg.class_active_callback = on_class_active;
+    cfg.error_callback        = on_error;
     g_usbh.Init(cfg);
     g_usbh.RegisterClass(USBH_MIDI_CLASS);
 }
@@ -175,6 +179,14 @@ void Poll(uint32_t)
 }
 
 bool Connected() { return g_ready; }
+
+uint8_t Stage()
+{
+    if (g_ready) return 3;
+    if (hUsbHostHS.gState == HOST_ABORT_STATE) g_failed = true;
+    if (g_failed) return 2;
+    return hUsbHostHS.device.is_connected ? 1 : 0;
+}
 
 bool PopEvent(Event* e)
 {
