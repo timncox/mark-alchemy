@@ -69,6 +69,16 @@ void ClearAll();
  *   3 a MIDI device is active */
 uint8_t Stage();
 
+/* Enumeration forensics, latched at the first abort. */
+struct Diag
+{
+    uint8_t  state_before_abort; /* HOST_StateTypeDef reached last, 0..13 */
+    uint8_t  enum_at_abort;      /* ENUM_StateTypeDef + 1, 0 = no abort yet */
+    bool     vid_ok;             /* the device descriptor said Novation */
+    uint16_t aborts;
+};
+Diag Diagnostics();
+
 /* Diagnostics for a readout: packets received, transfers sent. */
 uint32_t RxCount();
 uint32_t TxCount();

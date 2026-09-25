@@ -38,6 +38,9 @@ volatile int  g_qhead = 0, g_qtail = 0;
 
 uint32_t g_rx_count = 0, g_tx_count = 0;
 
+Diag    g_diag     = {0, 0, false, 0};
+uint8_t g_last_gs  = 0;
+
 void push(Kind k, uint8_t x, uint8_t y, bool down)
 {
     int next = (g_qhead + 1) % kQueue;
@@ -175,6 +178,21 @@ void Init()
 void Poll(uint32_t)
 {
     g_usbh.Process();
+    const uint8_t gs = (uint8_t)hUsbHostHS.gState;
+    if (gs == HOST_ABORT_STATE)
+    {
+        if (g_last_gs != HOST_ABORT_STATE)
+        {
+            if (g_diag.aborts == 0)
+            {
+                g_diag.state_before_abort = g_last_gs;
+                g_diag.enum_at_abort      = (uint8_t)(hUsbHostHS.EnumState + 1);
+            }
+            if (g_diag.aborts < 0xFFFF) g_diag.aborts++;
+        }
+    }
+    g_last_gs = gs;
+    if (hUsbHostHS.device.DevDesc.idVendor == 0x1235) g_diag.vid_ok = true;
     if (g_ready && g_usbh.IsActiveClass(USBH_MIDI_CLASS)) flush();
 }
 
@@ -212,6 +230,8 @@ void ClearAll()
 {
     for (int i = 0; i < kCells; i++) g_want[i] = kOff;
 }
+
+Diag Diagnostics() { return g_diag; }
 
 uint32_t RxCount() { return g_rx_count; }
 uint32_t TxCount() { return g_tx_count; }

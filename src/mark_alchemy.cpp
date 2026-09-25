@@ -1195,6 +1195,23 @@ static void paint_fill(uint8_t pot, float frac, const LedPanel::Rgb& c)
                               hw.leds.ScaleGlobal(c));
 }
 
+/* Launchpad forensics on the rings while the host is stuck (yellow/red B2):
+ *   P1 last host state before the first abort (lit LEDs = state number)
+ *   P2 enumeration step at that abort (LEDs = ENUM state + 1)
+ *   P3 all green = the device descriptor said Novation, all red = not read
+ *   P4 aborts so far (capped at a full ring) */
+static void lp_forensics(void)
+{
+    const lp::Diag d = lp::Diagnostics();
+    const float    n = (float)hw.Arc().arc_leds;
+    for (uint8_t p = 0; p < 4; p++) hw.leds.ClearRing(p);
+    paint_fill(kPotTopLeft,     d.state_before_abort / n, kWhite);
+    paint_fill(kPotTopRight,    d.enum_at_abort / n,      kAmber);
+    paint_fill(kPotMiddleLeft,  1.0f, d.vid_ok ? LedPanel::Rgb{0x00, 0xFF, 0x00}
+                                               : LedPanel::Rgb{0xFF, 0x00, 0x00});
+    paint_fill(kPotMiddleRight, d.aborts / n,             kRed);
+}
+
 static void OnRender(uint32_t t_ms)
 {
     LedPanel& L = hw.leds;
@@ -1253,6 +1270,9 @@ static void OnRender(uint32_t t_ms)
     if (pager.Page() != kPageSetup)
         L.SetButtonPair(kButtonB3, L.ScaleGlobal(g_nav_page == kPageTrack ? kColTrkPg
                                                                          : kColSetup));
+
+    if (g_lp_mode && (g_lp_stage == 3 || g_lp_stage == 4) && !settings.IsActive())
+        lp_forensics();
 }
 
 /* ---- audio ----------------------------------------------------------------- */
