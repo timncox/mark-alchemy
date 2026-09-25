@@ -37,7 +37,8 @@ LIBDAISY_DIR = lib/libDaisy
 CPP_SOURCES = \
     src/mark_alchemy.cpp \
     src/picker.cpp \
-    src/launchpad.cpp
+    src/launchpad.cpp \
+    src/usb_shared.cpp
 
 # mark_core_alchemy.c #includes vendor/mark_core.c with calloc/free
 # redirected to SDRAM. Never list vendor/mark_core.c here as well —
