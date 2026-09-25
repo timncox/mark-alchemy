@@ -47,6 +47,11 @@ constexpr uint8_t kGreenDim  = 23;
 constexpr uint8_t kCyan      = 37;
 constexpr uint8_t kBlue      = 45;
 constexpr uint8_t kMagenta   = 53;
+constexpr uint8_t kGrey      = 1;
+constexpr uint8_t kOrangeDim = 11;
+constexpr uint8_t kCyanDim   = 39;
+constexpr uint8_t kBlueDim   = 47;
+constexpr uint8_t kMagentaDim = 55;
 
 enum class Kind : uint8_t { Grid, Side, Top };
 
