@@ -1179,11 +1179,18 @@ static void OnFrame(void)
      * poll is paused for the duration. Loop audio is never saved; this is
      * the Setup page and the settings screen.
      */
-    if (g_dirty && now - g_dirty_since >= 5000u && !sact && !picker::Busy()
+    /* The USB port only takes effect at power-up, so a change is saved as
+     * soon as Settings closes -- nobody should have to wait before cycling. */
+    static int saved_usb = -1;
+    if (saved_usb < 0) saved_usb = (int)usb_port.Value();
+    const bool usb_changed = !sact && (int)usb_port.Value() != saved_usb;
+
+    if (g_dirty && (now - g_dirty_since >= 5000u || usb_changed) && !sact && !picker::Busy()
         && !hw.buttons[kButtonB1].Pressed() && !hw.buttons[kButtonB2].Pressed()
         && !hw.buttons[kButtonB3].Pressed())
     {
         presets.Save(kHomeSlot);
+        saved_usb    = (int)usb_port.Value();
         g_dirty      = false;
         g_saved_peak = extras.cpu_peak;
     }
