@@ -867,7 +867,6 @@ static bool g_lpdiag_done = false;
 static void lp_write_report(uint32_t now)
 {
     if (g_lpdiag_done || g_lp_stage < 2 || now - g_lp_boot_ms < 17000u) return;
-    if (lp::Connected()) { g_lpdiag_done = true; return; }
     if (picker::Busy() || !sd.EnsureMounted(now)) return;
     g_lpdiag_done = true;
     const int n = lp::Report(s_lpdiag_buf, (int)sizeof s_lpdiag_buf);
@@ -875,6 +874,77 @@ static void lp_write_report(uint32_t now)
     UINT w = 0;
     f_write(&s_lpdiag_fil, s_lpdiag_buf, (UINT)n, &w);
     f_close(&s_lpdiag_fil);
+}
+
+/* ---- Launch Control XL -----------------------------------------------------
+ *
+ *   faders 1-5  track LEVELs (the PLAY pots' stored values: the pot catches)
+ *   fader 6     MASTER
+ *   knob rows   per track 1-5: FX type, FX amount, PAN (the TRACK page's
+ *               values for that track, whichever track is selected)
+ *   upper row   buttons 1-5 REC/PLAY/DUB (lit in the track's state), 6 ALL
+ *   lower row   buttons 1-5 STOP, 6 UNDO/REDO
+ */
+static void mark_dirty(uint32_t now);
+
+static void xl_frame(uint32_t now)
+{
+    if (!xl::Connected()) return;
+    float phys[kNumPots];
+    for (uint8_t p = 0; p < kNumPots; p++) phys[p] = hw.pots[p].Value();
+
+    uint8_t v;
+    for (uint8_t c = 0; c < MARK_TRACKS; c++)
+        if (xl::Fader(c, &v))
+        {
+            pager.SetStored(kPagePlay, c, (float)v / 127.0f, phys);
+            mark_dirty(now);
+        }
+    if (xl::Fader(5, &v))
+    {
+        pager.SetStored(kPageSetup, kPotBottomRight, (float)v / 127.0f, phys);
+        mark_dirty(now);
+    }
+    for (uint8_t c = 0; c < MARK_TRACKS; c++)
+    {
+        if (xl::Knob(0, c, &v)) { extras.trk[c][kTpFx]    = (uint8_t)(v * 7 / 128);   mark_dirty(now); }
+        if (xl::Knob(1, c, &v)) { extras.trk[c][kTpFxAmt] = (uint8_t)(v * 100 / 127); mark_dirty(now); }
+        if (xl::Knob(2, c, &v)) { extras.trk[c][kTpPan]   = (uint8_t)(v * 100 / 127); mark_dirty(now); }
+    }
+
+    xl::Button b;
+    const bool live = !settings.IsActive();
+    while (xl::PopButton(&b))
+    {
+        if (!b.down || !live) continue;
+        if (b.row == 0 && b.col < MARK_TRACKS) track_key(b.col, "btn");
+        else if (b.row == 1 && b.col < MARK_TRACKS) track_key(b.col, "stop");
+        else if (b.row == 0 && b.col == 5) mark_set_param(M, "all_btn", "1");
+        else if (b.row == 1 && b.col == 5) mark_set_param(M, "undo", "1");
+    }
+
+    for (uint8_t c = 0; c < 8; c++)
+    {
+        uint8_t up = xl::kOff, lo = xl::kOff;
+        if (c < MARK_TRACKS)
+        {
+            switch (G_TSTATE[c])
+            {
+                case MK_REC:  up = xl::kRed;       break;
+                case MK_PLAY: up = xl::kGreen;     break;
+                case MK_DUB:  up = xl::kAmber;     break;
+                case MK_STOP: up = xl::kGreenDim;  break;
+                default:      up = xl::kOff;       break;
+            }
+            lo = G_TSTATE[c] != MK_EMPTY ? xl::kRedDim : xl::kOff;
+        }
+        if (c == 5) { up = xl::kGreenDim; lo = G_UNDO ? xl::kAmber : xl::kOff; }
+        xl::SetButtonLed(0, c, up);
+        xl::SetButtonLed(1, c, lo);
+        xl::SetKnobLed(0, c, c < MARK_TRACKS ? xl::kAmberDim : xl::kOff);
+        xl::SetKnobLed(1, c, c < MARK_TRACKS ? xl::kGreenDim : xl::kOff);
+        xl::SetKnobLed(2, c, c < MARK_TRACKS ? xl::kRedDim : xl::kOff);
+    }
 }
 
 static void lp_paint(uint32_t t_ms)
@@ -1157,7 +1227,7 @@ static void OnFrame(void)
         char buf[16];
         if (mark_get_param(M, "undo_avail", buf, sizeof buf) > 0) G_UNDO = atoi(buf);
     }
-    if (g_lp_mode) { lp_paint(System::GetNow()); lp_write_report(System::GetNow()); }
+    if (g_lp_mode) { lp_paint(System::GetNow()); xl_frame(now); lp_write_report(System::GetNow()); }
 
     /* Worst block this session. Clamped: an overrunning callback can report
      * over 100%, and the readout wants 0..1. */
