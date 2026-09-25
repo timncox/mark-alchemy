@@ -196,6 +196,7 @@ static volatile uint8_t s_fb_busy, s_in_busy;
 
 static uint8_t s_out_pkt[UAC_PKT_MAX + 6u];
 static uint8_t s_in_pkt[UAC_PKT_MAX];
+static uint16_t s_in_len;                      /* bytes in s_in_pkt       */
 static uint8_t s_fb_pkt[4];
 static uint8_t s_ctl[64];
 
@@ -268,6 +269,7 @@ static void in_stream(USBD_HandleTypeDef *pdev, uint8_t on)
         s_in_rd     = s_in_wr;            /* consumer side: empty the ring */
         s_in_primed = 0u;
         s_in_busy   = 0u;
+        s_in_len    = 0u;
         s_in_frac   = 0.0f;
         s_in_avg    = IN_TARGET;
         s_in_on     = 1u;
@@ -479,7 +481,8 @@ static void send_in(USBD_HandleTypeDef *pdev)
     }
     s_in_rd   = rd;
     s_in_busy = 1u;
-    USBD_LL_Transmit(pdev, EP_IN, s_in_pkt, (uint16_t)(n * UAC_FRAME_BYTES));
+    s_in_len  = (uint16_t)(n * UAC_FRAME_BYTES);
+    USBD_LL_Transmit(pdev, EP_IN, s_in_pkt, s_in_len);
 }
 
 static uint8_t c_sof(USBD_HandleTypeDef *pdev)
@@ -516,7 +519,8 @@ static uint8_t c_iso_in_incomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
      * the next frame) rather than at the next SOF: the host reads feedback
      * every 2 ms, and a SOF-only retry that is one frame out of step with
      * it would miss every time. */
-    s_info.in_incomplete++;
+    if (epnum == (EP_IN & 0x7Fu)) s_info.in_incomplete++;
+    else                          s_info.fb_incomplete++;
     if (epnum == (EP_FB & 0x7Fu))
     {
         s_fb_busy = 0u;
@@ -524,8 +528,15 @@ static uint8_t c_iso_in_incomplete(USBD_HandleTypeDef *pdev, uint8_t epnum)
     }
     if (epnum == (EP_IN & 0x7Fu))
     {
+        /* Offer the SAME packet again: its frames already left the ring,
+         * and building a new one would drop them and drain the ring by a
+         * packet for every miss. */
         s_in_busy = 0u;
-        if (s_in_on) send_in(pdev);
+        if (s_in_on && s_in_len)
+        {
+            s_in_busy = 1u;
+            USBD_LL_Transmit(pdev, EP_IN, s_in_pkt, s_in_len);
+        }
     }
     return (uint8_t)USBD_OK;
 }

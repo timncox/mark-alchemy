@@ -64,7 +64,7 @@ typedef struct
     uint32_t out_overruns;         /* USB found the ring full             */
     uint32_t in_underruns;         /* a packet had to be padded           */
     uint32_t in_overruns;          /* the audio callback found it full    */
-    uint32_t out_incomplete, in_incomplete;
+    uint32_t out_incomplete, in_incomplete, fb_incomplete;
     uint32_t feedback;             /* last value sent, 10.14              */
     float    rate;                 /* measured codec frames per ms        */
     float    out_fill, in_fill;    /* smoothed ring fill, frames          */

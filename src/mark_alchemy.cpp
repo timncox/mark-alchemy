@@ -897,7 +897,7 @@ static void uac_write_report(uint32_t now)
         "t=%lu ms state=%u out_on=%u in_on=%u sofs=%lu\n"
         "out: packets=%lu underruns=%lu overruns=%lu incomplete=%lu fill=%d\n"
         "in:  packets=%lu underruns=%lu overruns=%lu incomplete=%lu fill=%d\n"
-        "rate=%d.%03d frames/ms feedback=0x%06lx cpu_avg=%d%%\n",
+        "rate=%d.%03d frames/ms feedback=0x%06lx fb_incomplete=%lu cpu_avg=%d%%\n",
         (unsigned long)(now - g_lp_boot_ms), u.state, u.out_on, u.in_on,
         (unsigned long)u.sofs, (unsigned long)u.out_packets,
         (unsigned long)u.out_underruns, (unsigned long)u.out_overruns,
@@ -905,7 +905,8 @@ static void uac_write_report(uint32_t now)
         (unsigned long)u.in_packets, (unsigned long)u.in_underruns,
         (unsigned long)u.in_overruns, (unsigned long)u.in_incomplete,
         (int)u.in_fill, (int)u.rate, (int)((u.rate - (int)u.rate) * 1000.0f),
-        (unsigned long)u.feedback, (int)(cpu.GetAvgCpuLoad() * 100.0f));
+        (unsigned long)u.feedback, (unsigned long)u.fb_incomplete,
+        (int)(cpu.GetAvgCpuLoad() * 100.0f));
     if (n <= 0) return;
     if (f_open(&s_lpdiag_fil, "/uacdiag.txt", FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return;
     UINT w = 0;
