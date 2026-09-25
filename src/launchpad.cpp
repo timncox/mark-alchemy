@@ -7,6 +7,7 @@
 #include "daisy_core.h"
 #include "hid/usb_host.h"
 #include "usbh_midi.h"
+#include "usbh_hub_midi.h"
 
 extern "C" USBH_HandleTypeDef hUsbHostHS; /* libDaisy's host handle */
 
@@ -114,8 +115,11 @@ void on_disconnect(void*)
     g_need_init = false;
 }
 
+bool via_hub() { return g_usbh.IsActiveClass(USBH_HUB_MIDI_CLASS); }
+
 uint16_t out_ep_size()
 {
+    if (via_hub()) return HUBMIDI_OutSize(&hUsbHostHS);
     if (!hUsbHostHS.pActiveClass || !hUsbHostHS.pActiveClass->pData) return 0;
     const MIDI_HandleTypeDef* h = (const MIDI_HandleTypeDef*)hUsbHostHS.pActiveClass->pData;
     return h->OutEpSize;
@@ -172,8 +176,10 @@ void flush()
         if (n == 0) return;
     }
 
-    if (USBH_MIDI_Transmit(&hUsbHostHS, g_tx, (size_t)(4 * n)) != MIDI_OK)
-        return; /* busy or error: try again next poll, nothing is marked sent */
+    const bool ok = via_hub()
+                        ? HUBMIDI_Transmit(&hUsbHostHS, g_tx, (uint16_t)(4 * n)) == USBH_OK
+                        : USBH_MIDI_Transmit(&hUsbHostHS, g_tx, (size_t)(4 * n)) == MIDI_OK;
+    if (!ok) return; /* busy or error: try again next poll, nothing is marked sent */
 
     g_tx_count++;
     if (init)
@@ -199,6 +205,8 @@ void Init()
     cfg.error_callback        = on_error;
     g_usbh.Init(cfg);
     g_usbh.RegisterClass(USBH_MIDI_CLASS);
+    g_usbh.RegisterClass(USBH_HUB_MIDI_CLASS);   /* a powered adapter with a hub */
+    HUBMIDI_SetReceiveCallback(on_rx, nullptr);
 }
 
 void Poll(uint32_t now)
@@ -238,7 +246,15 @@ void Poll(uint32_t now)
     }
     g_last_gs = gs;
     if (hUsbHostHS.device.DevDesc.idVendor == 0x1235) g_diag.vid_ok = true;
-    if (g_ready && g_usbh.IsActiveClass(USBH_MIDI_CLASS)) flush();
+    /* Behind a hub the class never reports itself active; poll for it. */
+    if (!g_ready && HUBMIDI_Ready(&hUsbHostHS))
+    {
+        g_ready     = true;
+        g_need_init = true;
+        g_rx_cable  = -1;
+    }
+    if (g_ready && (g_usbh.IsActiveClass(USBH_MIDI_CLASS) || HUBMIDI_Ready(&hUsbHostHS)))
+        flush();
 }
 
 bool Connected() { return g_ready; }
@@ -247,6 +263,8 @@ uint8_t Stage()
 {
     if (g_ready) return 3;
     if (hUsbHostHS.gState == HOST_ABORT_STATE) g_failed = true;
+    if (via_hub())
+        return HUBMIDI_GetInfo().fail_state ? 2 : 1; /* a hub: working on it */
     if (g_failed) return 2;
     return hUsbHostHS.device.is_connected ? 1 : 0;
 }
@@ -289,6 +307,12 @@ int Report(char* b, int cap)
         (unsigned)g_diag.aborts, (unsigned)g_diag.state_before_abort,
         (unsigned)g_diag.enum_at_abort, (int)g_diag.vid_ok, (int)g_ready);
     OUT("rx %lu tx %lu\n", (unsigned long)g_rx_count, (unsigned long)g_tx_count);
+    {
+        const HUBMIDI_Info h = HUBMIDI_GetInfo();
+        OUT("hub: active %d state %u ports %u port %u status %04x behind %04x:%04x fail state %u code %u\n",
+            (int)via_hub(), h.state, h.ports, h.port, h.port_status, h.vid, h.pid,
+            h.fail_state, h.fail_code);
+    }
     if (g_cc_seen)
     {
         OUT("at CHECK_CLASS: vid %04x pid %04x classes registered %lu\n",

@@ -46,7 +46,8 @@ C_SOURCES = \
     src/clock_adapter.c \
     src/versio_alloc.c \
     src/host_stubs.c \
-    src/mark_core_alchemy.c
+    src/mark_core_alchemy.c \
+    src/usbh_hub_midi.c
 
 # ── Alchemy SDK, compiled straight from the submodule ───────────────────────
 CPP_SOURCES += $(sort $(shell find $(ALCHEMY_DIR)/framework/src -name '*.cpp'))
