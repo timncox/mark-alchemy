@@ -183,6 +183,7 @@ static USBD_DescriptorsTypeDef s_desc = {
 
 static USBD_HandleTypeDef s_dev;
 static volatile uint8_t   s_started;
+static volatile uint8_t   s_reboot_req;
 
 /* Frames as signed 24-bit in int32, L then R. */
 static int32_t           s_out_ring[RING][UAC_CH];
@@ -200,11 +201,19 @@ static uint16_t s_in_len;                      /* bytes in s_in_pkt       */
 static uint8_t s_fb_pkt[4];
 static uint8_t s_ctl[64];
 
-/* Codec frames counted by the audio callback. Only a diagnostic: it moves
- * in whole blocks (128 frames), far coarser than the real rate mismatch, so
- * the control loops run on ring fill alone. */
+/* The codec's rate in frames per USB frame, measured against the CPU cycle
+ * counter: the audio callback times >= 64k frames (~1.4 s) of codec, the
+ * SOF handler times 1024 USB frames, and the ratio is the rate. Both spans
+ * are long against the interrupt jitter (~1 us), so the estimate is good to
+ * a few ppm, and the ring-fill terms only have to trim. Fill alone (the
+ * first build) hunted: macOS smooths the feedback, and the lag turned the
+ * loop into a ~26 s oscillation that underran the OUT ring. */
 static volatile uint32_t s_codec_frames;
-static uint32_t          s_rate_frames0, s_rate_sofs0;
+static uint32_t          s_cf_mark_frames, s_cf_mark_cyc;
+static volatile float    s_cyc_per_frame;   /* codec, 0 = not measured yet */
+static uint32_t          s_sof_mark_cyc;
+static volatile float    s_cyc_per_sof;     /* USB, 0 = not measured yet   */
+static float             s_rate = (float)UAC_NOM_FRAMES;
 static float             s_in_frac;
 static float             s_out_avg, s_in_avg;
 
@@ -372,6 +381,19 @@ static uint8_t c_setup(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
         }
         return (uint8_t)USBD_OK;
 
+    case USB_REQ_TYPE_VENDOR:
+        /* Reboot into the bootloader (DFU), so a build can be flashed
+         * without a power-cycle: there is no HostLink in this mode. */
+        if (recipient == 0x00u && req->bRequest == UAC_VENDOR_REBOOT_DFU
+            && req->wValue == UAC_VENDOR_REBOOT_MAGIC && req->wLength == 0u)
+        {
+            s_reboot_req = 1u;
+            USBD_CtlSendStatus(pdev);
+            return (uint8_t)USBD_OK;
+        }
+        USBD_CtlError(pdev, req);
+        return (uint8_t)USBD_FAIL;
+
     default:
         USBD_CtlError(pdev, req);
         return (uint8_t)USBD_FAIL;
@@ -424,12 +446,12 @@ static uint8_t c_data_out(USBD_HandleTypeDef *pdev, uint8_t epnum)
 
 static void send_feedback(USBD_HandleTypeDef *pdev)
 {
-    float fb = (float)UAC_NOM_FRAMES;
+    float fb = s_rate;
     if (s_out_primed)
     {
-        float corr = (OUT_TARGET - s_out_avg) * 0.002f;
-        if (corr > 0.2f)  corr = 0.2f;
-        if (corr < -0.2f) corr = -0.2f;
+        float corr = (OUT_TARGET - s_out_avg) * 0.0002f;
+        if (corr > 0.02f)  corr = 0.02f;
+        if (corr < -0.02f) corr = -0.02f;
         fb += corr;
     }
     const uint32_t v = (uint32_t)(fb * 16384.0f + 0.5f);   /* 10.14 */
@@ -454,11 +476,11 @@ static void send_in(USBD_HandleTypeDef *pdev)
     float corr = 0.0f;
     if (s_in_primed)
     {
-        corr = (s_in_avg - IN_TARGET) * 0.002f;
-        if (corr > 0.2f)  corr = 0.2f;
-        if (corr < -0.2f) corr = -0.2f;
+        corr = (s_in_avg - IN_TARGET) * 0.0002f;
+        if (corr > 0.02f)  corr = 0.02f;
+        if (corr < -0.02f) corr = -0.02f;
     }
-    s_in_frac += (float)UAC_NOM_FRAMES + corr;
+    s_in_frac += s_rate + corr;
     uint32_t n = (uint32_t)s_in_frac;
     s_in_frac -= (float)n;
     if (n < UAC_NOM_FRAMES - 1u) n = UAC_NOM_FRAMES - 1u;
@@ -489,13 +511,22 @@ static uint8_t c_sof(USBD_HandleTypeDef *pdev)
 {
     const uint32_t sofs = ++s_info.sofs;
 
-    if (sofs == 1u)
+    if ((sofs & 1023u) == 0u)
     {
-        s_rate_frames0 = s_codec_frames;
-        s_rate_sofs0   = sofs;
+        const uint32_t cyc = DWT->CYCCNT;
+        if (s_sof_mark_cyc)
+        {
+            const float c = (float)(cyc - s_sof_mark_cyc) / 1024.0f;
+            s_cyc_per_sof = s_cyc_per_sof > 0.0f ? s_cyc_per_sof + (c - s_cyc_per_sof) * 0.25f : c;
+        }
+        s_sof_mark_cyc = cyc ? cyc : 1u;
+        if (s_cyc_per_sof > 0.0f && s_cyc_per_frame > 0.0f)
+        {
+            const float r = s_cyc_per_sof / s_cyc_per_frame;
+            if (r > 47.9f && r < 48.1f) s_rate = r;   /* else: something is off */
+        }
+        s_info.rate = s_rate;
     }
-    else if ((sofs & 1023u) == 0u)   /* cumulative: the block steps average out */
-        s_info.rate = (float)(s_codec_frames - s_rate_frames0) / (float)(sofs - s_rate_sofs0);
 
     if (s_out_on)
     {
@@ -579,6 +610,11 @@ void UAC_Start(const char *product)
     if (s_started) return;
     if (product) s_product = product;
 
+    /* The cycle counter times the codec against USB (the rate estimate). */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0u;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
     /* libDaisy's USBD_LL_Init brings up the HS core in FS mode on PB14/15
      * (pins, clock, IRQs) and sizes the FIFOs for CDC. */
     USBD_Init(&s_dev, &s_desc, 1 /* DEVICE_HS */);
@@ -603,7 +639,20 @@ void UAC_Start(const char *product)
 
 void UAC_Process(const float *const *in, float **out, size_t frames)
 {
-    s_codec_frames += (uint32_t)frames;
+    const uint32_t total = s_codec_frames + (uint32_t)frames;
+    s_codec_frames = total;
+    if (total - s_cf_mark_frames >= 65536u)
+    {
+        const uint32_t cyc = DWT->CYCCNT;
+        if (s_cf_mark_cyc)
+        {
+            const float c = (float)(cyc - s_cf_mark_cyc) / (float)(total - s_cf_mark_frames);
+            s_cyc_per_frame = s_cyc_per_frame > 0.0f
+                                  ? s_cyc_per_frame + (c - s_cyc_per_frame) * 0.25f : c;
+        }
+        s_cf_mark_cyc    = cyc ? cyc : 1u;
+        s_cf_mark_frames = total;
+    }
 
     /* computer -> J9/J10 */
     if (s_out_on)
@@ -648,6 +697,11 @@ void UAC_Process(const float *const *in, float **out, size_t frames)
         __DMB();
         s_in_wr = wr;
     }
+}
+
+uint8_t UAC_RebootRequested(void)
+{
+    return s_reboot_req;
 }
 
 uint8_t UAC_State(void)

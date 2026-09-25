@@ -12,11 +12,11 @@
  *                with explicit feedback on EP 0x81 (10.14, 3 bytes)
  *   interface 2  AudioStreaming IN,  EP 0x82 isochronous asynchronous
  *
- * The codec is the clock. OUT: the feedback endpoint tells the host how
- * many frames per millisecond the codec really consumes, measured over
- * ~1 s, plus a small correction that keeps the ring near its target fill.
- * IN: each packet carries 47, 48 or 49 frames, whichever keeps the ring
- * near its target. Lock-free single-producer/single-consumer rings sit
+ * The codec is the clock. Its rate in frames per USB frame is measured
+ * against the CPU cycle counter (a few ppm). OUT: the feedback endpoint
+ * sends that rate plus a small trim that keeps the ring near its target
+ * fill. IN: packets carry 48 frames, with the odd 47 or 49 from the same
+ * rate plus trim. Lock-free single-producer/single-consumer rings sit
  * between the USB interrupt and the audio callback.
  *
  * One role per boot on the front port: never together with HostLink or the
@@ -52,6 +52,13 @@ enum
     UAC_STREAMING       /* at least one direction streaming          */
 };
 uint8_t UAC_State(void);
+
+/* A host asked for the bootloader: vendor request to the device,
+ * bRequest UAC_VENDOR_REBOOT_DFU, wValue UAC_VENDOR_REBOOT_MAGIC, no data.
+ * The app polls this and resets (after the status stage has gone out). */
+#define UAC_VENDOR_REBOOT_DFU   0xB0u
+#define UAC_VENDOR_REBOOT_MAGIC 0xB007u
+uint8_t UAC_RebootRequested(void);
 
 /* For a diagnostic report. */
 typedef struct

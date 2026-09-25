@@ -1018,6 +1018,13 @@ static void lp_paint(uint32_t t_ms)
 
 static void OnPoll(uint32_t now)
 {
+    if (g_usb_audio && UAC_RebootRequested())
+    {
+        static uint32_t asked = 0u;
+        if (!asked) asked = now ? now : 1u;
+        else if (now - asked > 100u)
+            System::ResetToBootloader(System::BootloaderMode::DAISY);
+    }
     if (g_lp_mode)
     {
         if (g_lp_stage == 0 && now - g_lp_boot_ms > 2000u) g_lp_stage = 1;
