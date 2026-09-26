@@ -883,13 +883,18 @@ static void lp_write_report(uint32_t now)
 }
 
 /* The USB audio counters, to the card as /uacdiag.txt 20 s after boot and
- * every 30 s after that, for reading back in Mac mode. */
+ * every 30 s after that while no stream is open, for reading back in Mac
+ * mode. */
 static char     s_uacdiag_buf[512];
 static uint32_t g_uacdiag_next = 20000u;
 
 static void uac_write_report(uint32_t now)
 {
     if (!g_usb_audio || now - g_lp_boot_ms < g_uacdiag_next) return;
+    /* Never while streaming: an SD write stalled the USB interrupt for
+     * milliseconds (both directions dropped packets every ~30 s). The live
+     * readout (usb_audio.h, vendor request 0xB1) covers streaming. */
+    if (UAC_State() == UAC_STREAMING) return;
     if (picker::Busy() || !sd.EnsureMounted(now)) return;
     g_uacdiag_next = now - g_lp_boot_ms + 30000u;
     const UAC_Info u = UAC_GetInfo();

@@ -8,16 +8,21 @@
  *   interface 0  AudioControl: USB-in -> line-out, line-in -> USB-out; no
  *                volume/mute units, so the computer cannot scale the signal
  *                (J9/J10 are DC-coupled: a DAW can send CV through them)
- *   interface 1  AudioStreaming OUT, EP 0x01 isochronous asynchronous,
- *                with explicit feedback on EP 0x81 (10.14, 3 bytes)
- *   interface 2  AudioStreaming IN,  EP 0x82 isochronous asynchronous
+ *   interface 1  AudioStreaming OUT, EP 0x01 isochronous ADAPTIVE
+ *   interface 2  AudioStreaming IN,  EP 0x82 isochronous SYNCHRONOUS
  *
- * The codec is the clock. Its rate in frames per USB frame is measured
- * against the CPU cycle counter (a few ppm). OUT: the feedback endpoint
- * sends that rate plus a small trim that keeps the ring near its target
- * fill. IN: packets carry 48 frames, with the odd 47 or 49 from the same
- * rate plus trim. Lock-free single-producer/single-consumer rings sit
- * between the USB interrupt and the audio callback.
+ * The HOST is the clock. The codec's clock (PLL3, which libDaisy leaves
+ * 250 ppm fast) is steered once a second so the codec makes exactly 48.000
+ * frames per USB frame: its rate is measured against the CPU cycle counter
+ * (a few ppm), and the ring fills add a trim of at most 20 ppm. Every
+ * packet both ways is 48 frames. Lock-free single-producer/single-consumer
+ * rings sit between the USB interrupt and the audio callback.
+ *
+ * Why not asynchronous with a feedback endpoint (the first design, and the
+ * textbook one): macOS's usbaudiod (2026-09) models a device at its nominal
+ * rate whatever the feedback says, and a few missed feedback polls a second
+ * made it restart the whole stream every ~30 s. Both are logged by
+ * usbaudiod ("ioDriftNS", "enqueueAvailableFeedbackTransferBlocks_error").
  *
  * One role per boot on the front port: never together with HostLink or the
  * Launchpad host. Uses libDaisy's USBD_LL_Init for the HS core in FS mode
@@ -75,12 +80,18 @@ typedef struct
     uint32_t in_underruns;         /* a packet had to be padded           */
     uint32_t in_overruns;          /* the audio callback found it full    */
     uint32_t out_incomplete, in_incomplete, fb_incomplete;
-    uint32_t feedback;             /* last value sent, 10.14              */
+    uint32_t feedback;             /* the rate packets carry, 10.14       */
     float    rate;                 /* measured codec frames per ms        */
     float    out_fill, in_fill;    /* smoothed ring fill, frames          */
     float    cyc_per_frame;        /* codec, CPU cycles per frame         */
     float    cyc_per_sof;          /* USB, CPU cycles per 1 ms frame      */
     uint32_t out_raw, in_raw;      /* instantaneous ring fill             */
+    uint32_t out_resyncs, in_resyncs; /* excess dropped in one go         */
+    uint32_t sof_gap_max, sof_gap_at; /* longest SOF-to-SOF, cycles; when */
+    uint32_t cb_gap_max, cb_gap_at;   /* longest callback gap; when (SOF#)*/
+    uint32_t out_parity_fixes;     /* OUT re-armed for the right frame    */
+    uint32_t pll_frac;             /* PLL3 fraction steering the codec    */
+    float    pll_err_ppm;          /* codec rate error, ppm (after trim)  */
 } UAC_Info;
 UAC_Info UAC_GetInfo(void);
 
