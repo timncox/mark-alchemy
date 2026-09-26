@@ -287,7 +287,7 @@ static VirtualKnob lvl5 = VirtualKnob(kPotBottomLeft, "Track 5")
     .Linear(0.f, 100.f).Ident("t5_level").Unit("%")
     .Ring(Custom(TrackRing, (void*)(uintptr_t)4));
 
-static VirtualKnob track = VirtualKnob(kPotBottomRight, "Track")
+static VirtualKnob track = VirtualKnob(kPotBottomRight, "Track Select")
     .Selector(5).Labels(kTrackLabels).Ident("track")
     .Ring(SelectorRing(kColTrack, kColDim, 5));
 
@@ -344,7 +344,7 @@ static VirtualKnob trk_pan = VirtualKnob(kPotBottomLeft, "Pan")
     .Linear(-50.f, 50.f).Ident("trk_pan")
     .Ring(Bipolar(kColPanR, kColPanL, kWhite));
 
-static VirtualKnob trk_sel = VirtualKnob(kPotBottomRight, "Track")
+static VirtualKnob trk_sel = VirtualKnob(kPotBottomRight, "Track Select")
     .Selector(5).Labels(kTrackLabels).Ident("trk_track")
     .Ring(Custom(TrackSelectRing));
 

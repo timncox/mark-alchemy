@@ -315,7 +315,7 @@ h4.setglance{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-tr
         played it and becomes the bar every later loop snaps to. TEMPO only tells the module how
         many bars that was. With a clock on J3, everything snaps to that instead.</p></div>
     <div class="card"><div class="k">Two buttons</div><h4>A track button and a stop button</h4>
-      <p>Pick a track with the TRACK pot. B1 is that track's REC/PLAY: tap through record, play
+      <p>Pick a track with the TRACK SELECT pot. B1 is that track's REC/PLAY: tap through record, play
         and overdub, hold for undo, hold longer to clear. B2 stops it; hold B2 for ALL.</p></div>
   </div>
   <p style="margin-top:26px">It is the same C engine as <a href="https://timncox.github.io/schwung-mark/">Mark</a>
@@ -371,12 +371,12 @@ h4.setglance{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-tr
   <h2 class="sh">Playing it</h2>
   <div class="sub">03 — Five steps to the first two loops</div>
   <pre><b>1</b>  Patch audio to <i>J1 / J2</i> (IN). It passes through immediately.
-<b>2</b>  Turn <i>TRACK</i> (P6) to 1. The B1 light shows track 1's state: dim, empty.
+<b>2</b>  Turn <i>TRACK SELECT</i> (P6, bottom right) to 1. The B1 light shows track 1's state: dim, empty.
 <b>3</b>  Tap <i>B1</i>. The P1 ring turns <i>red</i>. It is recording, right now,
    because nothing is playing yet and nothing is clocking it.
 <b>4</b>  Tap <i>B1</i> again where the bar should end. The ring turns <i>green</i>
    and the loop plays. That length is now the bar.
-<b>5</b>  Turn <i>TRACK</i> to 2, tap <i>B1</i>. The P2 ring <i>blinks red</i> until
+<b>5</b>  Turn <i>TRACK SELECT</i> to 2, tap <i>B1</i>. The P2 ring <i>blinks red</i> until
    the bar line, then records for a bar and turns green on the next one.</pre>
   <p style="margin-top:22px"><b>Tap B1 on a playing track and it overdubs</b>: the ring goes yellow
     and everything you play is layered onto the loop until you tap again. <b>Tap B2 to stop</b> a
@@ -492,7 +492,7 @@ h4.setglance{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-tr
       <tr><td>P3</td><td><b>FX</b>, the track's built-in insert effect</td><td>Off · Low-pass · High-pass · Crush · Delay · Phaser · Ring mod</td><td><span class="sw" style="color:var(--c-fx)"></span>7 dots</td></tr>
       <tr><td>P4</td><td><b>FX AMOUNT</b></td><td class="num">0–100 %</td><td><span class="sw" style="color:var(--c-fxamt)"></span>level</td></tr>
       <tr><td>P5</td><td><b>PAN</b>, with a small dead zone at centre so the middle is easy to find</td><td class="num">L50 – R50</td><td><span class="sw" style="color:var(--c-panl)"></span>left · <span class="sw" style="color:var(--c-panr)"></span>right, from a white centre</td></tr>
-      <tr><td>P6</td><td><b>TRACK</b>, the same selector as on PLAY, on the same pot</td><td>1 · 2 · 3 · 4 · 5</td><td>five dots in the tracks' own state colours, the selected one bright</td></tr>
+      <tr><td>P6</td><td><b>TRACK SELECT</b>, the same selector as on PLAY, on the same pot</td><td>1 · 2 · 3 · 4 · 5</td><td>five dots in the tracks' own state colours, the selected one bright</td></tr>
     </tbody>
   </table></div>
   <p style="margin-top:20px"><b>One page, five tracks.</b> The page always shows the track TRACK
@@ -609,7 +609,7 @@ h4.setglance{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-tr
       <tr><td>J3</td><td><b>CLOCK</b> — see above</td><td>—</td></tr>
       <tr><td>J4</td><td><b>REC trigger</b> — the selected track's B1, from a gate or trigger</td><td>—</td></tr>
       <tr><td>J5</td><td><b>STOP trigger</b> — the selected track's B2</td><td>—</td></tr>
-      <tr><td>J6</td><td><b>TRACK</b> select</td><td>PLAY P6</td></tr>
+      <tr><td>J6</td><td><b>TRACK SELECT</b> CV</td><td>PLAY P6</td></tr>
       <tr><td>J7</td><td><b>LEVEL 1</b></td><td>PLAY P1</td></tr>
       <tr><td>J8</td><td><b>LEVEL 2</b></td><td>PLAY P2</td></tr>
     </tbody>
@@ -1244,7 +1244,7 @@ const PAGES = [
     { id:"P5", name:"TRACK 5", ring:{style:"track", t:4}, v:.5, sub:"level 0–100% · the track's display",
       d:"Track 5. Empty: the arc still shows the level, near dark, so a turned-down pot is never mistaken for an empty track.",
       meta:["engine <b>t5_level</b>","ring <b>state colour + playhead</b>"] },
-    { id:"P6", name:"TRACK", ring:{style:"sel", c:C.track, n:5}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · CV on J6",
+    { id:"P6", name:"TRACK SELECT", ring:{style:"sel", c:C.track, n:5}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · CV on J6",
       d:"Which track B1, B2, J4 and J5 act on. The B1 light shows that track's state. A sequencer into J6 walks it.",
       meta:["target <b>B1 · B2 · J4 · J5</b>","ring <b>5 dots</b>","deadband <b>2%</b>"] },
   ]},
@@ -1284,7 +1284,7 @@ const PAGES = [
     { id:"P5", name:"PAN", ring:{style:"bipolar", p:C.panR, n:C.panL}, v:.62, sub:"L50 – R50 · ±3% centre snap",
       d:"Where the selected track sits in the stereo out. Within 3% of the middle it snaps to dead centre, so the middle is easy to find.",
       meta:["engine <b>t&lt;n&gt;_pan</b>","ring <b>bipolar</b>","default <b>centre</b>"] },
-    { id:"P6", name:"TRACK", ring:{style:"tsel"}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · the same pot as on PLAY",
+    { id:"P6", name:"TRACK SELECT", ring:{style:"tsel"}, v:.5/5, sub:"1 · 2 · 3 · 4 · 5 · the same pot as on PLAY",
       d:"Which track this page belongs to, and which track B1 and B2 act on. The five dots are the five tracks in their state colours, the selected one bright, because the LEVEL rings are out of sight here. It follows J6.",
       meta:["page <b>reloads per track</b>","ring <b>5 state dots</b>","CV <b>J6</b>"] },
   ]},
@@ -1306,9 +1306,9 @@ const JACKS = {
   J1:{ name:"IN L",  sub:"audio in, left",  d:"Left channel in. What the tracks record, and what passes through to the output while DRY INPUT is Through.", meta:["kind <b>codec in</b>"] },
   J2:{ name:"IN R",  sub:"audio in, right", d:"Right channel in. The loops are stereo.", meta:["kind <b>codec in</b>"] },
   J3:{ name:"CLOCK", sub:"gate in · ratio in Settings", d:"A clock. Fed to the engine only after a pulse has arrived, so with nothing patched the first loop sets the bar. Read raw in the audio callback on the magnitude of the swing from the calibrated zero; use pulses of 5 ms or longer. Loops keep their recorded speed: the clock places events, it does not stretch them.", meta:["assert <b>1.5 V</b>","release <b>0.5 V</b>","ratio <b>Settings P5</b>"] },
-  J4:{ name:"REC TRIGGER", sub:"gate in", d:"A rising edge is a tap on B1 for the selected track: record, play, overdub. A sequencer's record button.", meta:["acts as <b>B1 tap</b>","on <b>TRACK</b>"] },
-  J5:{ name:"STOP TRIGGER", sub:"gate in", d:"A rising edge is a tap on B2 for the selected track.", meta:["acts as <b>B2 tap</b>","on <b>TRACK</b>"] },
-  J6:{ name:"CV → TRACK",   sub:"±5 V, summed with PLAY P6", d:"Adds to the TRACK pot: a sequencer walks the five tracks. On the TRACK page it walks the page too, which reloads for each track.", meta:["drives <b>PLAY P6</b>"] },
+  J4:{ name:"REC TRIGGER", sub:"gate in", d:"A rising edge is a tap on B1 for the selected track: record, play, overdub. A sequencer's record button.", meta:["acts as <b>B1 tap</b>","on <b>TRACK SELECT</b>"] },
+  J5:{ name:"STOP TRIGGER", sub:"gate in", d:"A rising edge is a tap on B2 for the selected track.", meta:["acts as <b>B2 tap</b>","on <b>TRACK SELECT</b>"] },
+  J6:{ name:"CV → TRACK SELECT",   sub:"±5 V, summed with PLAY P6", d:"Adds to the TRACK SELECT pot: a sequencer walks the five tracks. On the TRACK page it walks the page too, which reloads for each track.", meta:["drives <b>PLAY P6</b>"] },
   J7:{ name:"CV → LEVEL 1", sub:"±5 V, summed with PLAY P1", d:"Adds to track 1's level.", meta:["drives <b>PLAY P1</b>"] },
   J8:{ name:"CV → LEVEL 2", sub:"±5 V, summed with PLAY P2", d:"Adds to track 2's level.", meta:["drives <b>PLAY P2</b>"] },
   J9:{ name:"OUT L", sub:"audio out, left",  d:"Left channel out: the five loops through MASTER, plus the dry input when Settings has it Through.", meta:["kind <b>codec out</b>"] },
@@ -1446,7 +1446,7 @@ function drawJack(g, j) {
   el("circle", { cx:j.x, cy:j.y, r:j.hole, fill:"#1b1923" }, g);
   el("circle", { cx:j.x, cy:j.y, r:1.5, fill:"#050507" }, g);
 }
-const JACKLEGEND = { J1:"IN L", J2:"IN R", J3:"CLK", J4:"REC", J5:"STOP", J6:"TRACK", J7:"LVL 1", J8:"LVL 2", J9:"OUT L", J10:"OUT R" };
+const JACKLEGEND = { J1:"IN L", J2:"IN R", J3:"CLK", J4:"REC", J5:"STOP", J6:"TRK SEL", J7:"LVL 1", J8:"LVL 2", J9:"OUT L", J10:"OUT R" };
 
 /* state: page index, values per page, button halos, track states */
 function drawPanel(svg, st, onHover) {
