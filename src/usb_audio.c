@@ -218,6 +218,7 @@ static float             s_in_frac;
 static float             s_out_avg, s_in_avg;
 
 static volatile UAC_Info s_info;
+UAC_Info UAC_GetInfo(void);
 
 /* ---- helpers ---------------------------------------------------------------- */
 
@@ -389,6 +390,15 @@ static uint8_t c_setup(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
         {
             s_reboot_req = 1u;
             USBD_CtlSendStatus(pdev);
+            return (uint8_t)USBD_OK;
+        }
+        if (recipient == 0x00u && req->bRequest == UAC_VENDOR_INFO
+            && (req->bmRequest & 0x80u))
+        {
+            static UAC_Info snap;
+            snap = UAC_GetInfo();
+            const uint16_t n = req->wLength < sizeof snap ? req->wLength : (uint16_t)sizeof snap;
+            USBD_CtlSendData(pdev, (uint8_t *)&snap, n);
             return (uint8_t)USBD_OK;
         }
         USBD_CtlError(pdev, req);
@@ -716,6 +726,10 @@ UAC_Info UAC_GetInfo(void)
     UAC_Info i;
     memcpy(&i, (const void *)&s_info, sizeof i);
     i.state  = UAC_State();
+    i.cyc_per_frame = s_cyc_per_frame;
+    i.cyc_per_sof   = s_cyc_per_sof;
+    i.out_raw       = s_out_wr - s_out_rd;
+    i.in_raw        = s_in_wr - s_in_rd;
     i.out_on = s_out_on;
     i.in_on  = s_in_on;
     return i;

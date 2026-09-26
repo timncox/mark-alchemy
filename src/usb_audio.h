@@ -58,6 +58,9 @@ uint8_t UAC_State(void);
  * The app polls this and resets (after the status stage has gone out). */
 #define UAC_VENDOR_REBOOT_DFU   0xB0u
 #define UAC_VENDOR_REBOOT_MAGIC 0xB007u
+/* Vendor IN request 0xB1 to the device returns UAC_Info (little-endian,
+ * as laid out here), for a live readout while streaming. */
+#define UAC_VENDOR_INFO         0xB1u
 uint8_t UAC_RebootRequested(void);
 
 /* For a diagnostic report. */
@@ -75,6 +78,9 @@ typedef struct
     uint32_t feedback;             /* last value sent, 10.14              */
     float    rate;                 /* measured codec frames per ms        */
     float    out_fill, in_fill;    /* smoothed ring fill, frames          */
+    float    cyc_per_frame;        /* codec, CPU cycles per frame         */
+    float    cyc_per_sof;          /* USB, CPU cycles per 1 ms frame      */
+    uint32_t out_raw, in_raw;      /* instantaneous ring fill             */
 } UAC_Info;
 UAC_Info UAC_GetInfo(void);
 
