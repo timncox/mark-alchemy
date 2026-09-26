@@ -1070,6 +1070,24 @@ static void lp_paint(uint32_t t_ms)
     lp::SetTop(1, G_UNDO == 1 ? lp::kAmber : (G_UNDO == 2 ? lp::kGreen : lp::kOff));
 }
 
+/* Buttons still down when Settings closed: ignored until they are let go.
+ * The SDK closes Settings on the B2 or B3 press itself, and this poll sees
+ * that same press a moment later; without this the press that leaves
+ * Settings would also count as a press here. */
+static uint8_t g_btn_swallow = 0;
+
+static bool btn_live(uint8_t b)
+{
+    const bool    down = hw.buttons[b].Pressed();
+    const uint8_t bit  = (uint8_t)(1u << b);
+    if (g_btn_swallow & bit)
+    {
+        if (down) return false;
+        g_btn_swallow = (uint8_t)(g_btn_swallow & ~bit);
+    }
+    return down;
+}
+
 static void OnPoll(uint32_t now)
 {
     if (g_usb_audio && UAC_RebootRequested())
@@ -1099,14 +1117,15 @@ static void OnPoll(uint32_t now)
         b1.down = b2.down = b3.down = false;
         G_TRIG_REC = G_TRIG_STOP = false;
         G_NAV_TAP = false;
+        g_btn_swallow = (uint8_t)((1u << kButtonB1) | (1u << kButtonB2) | (1u << kButtonB3));
         return;
     }
 
     /* B3 */
     {
-        const bool pressed = hw.buttons[kButtonB3].Pressed();
+        const bool pressed = btn_live(kButtonB3);
         if (pressed && !b3.down) { b3.down = true; b3.fired = false; b3.t0 = now; }
-        if (b3.down && pressed && hw.buttons[kButtonB2].Pressed()) b3.fired = true;
+        if (b3.down && pressed && btn_live(kButtonB2)) b3.fired = true;
         if (b3.down && !pressed)
         {
             b3.down = false;
@@ -1122,7 +1141,7 @@ static void OnPoll(uint32_t now)
 
     /* B1 */
     {
-        const bool pressed = hw.buttons[kButtonB1].Pressed();
+        const bool pressed = btn_live(kButtonB1);
         if (pressed && !b1.down) { b1.down = true; b1.fired = false; b1.t0 = now; }
         const uint32_t held = now - b1.t0;
         if (b1.down && pressed && !b1.fired && held > CLEAR_PRESS_MS)
@@ -1145,13 +1164,13 @@ static void OnPoll(uint32_t now)
      * Settings chord, and the hold-for-ALL threshold is 600 ms, so every
      * trip into Settings would otherwise stop (or start) every loop on the
      * way. While B3 is down B2 is ignored and its release fires nothing. */
-    if (hw.buttons[kButtonB3].Pressed())
+    if (btn_live(kButtonB3))
     {
         b2.down = false;
     }
     else
     {
-        const bool pressed = hw.buttons[kButtonB2].Pressed();
+        const bool pressed = btn_live(kButtonB2);
         if (pressed && !b2.down) { b2.down = true; b2.fired = false; b2.t0 = now; }
         const uint32_t held = now - b2.t0;
         if (b2.down && pressed && !b2.fired && held > ALL_PRESS_MS)
