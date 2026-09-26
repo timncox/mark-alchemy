@@ -29,9 +29,16 @@ BUILD         = ../build/test
 
 .PHONY: test clean
 
-test: $(BUILD)/test_alloc $(BUILD)/test_extras
+test: $(BUILD)/test_alloc $(BUILD)/test_extras $(BUILD)/test_punch_fx
 	./$(BUILD)/test_alloc
 	./$(BUILD)/test_extras
+	./$(BUILD)/test_punch_fx $(BUILD)/punch_fx.wav
+
+# punch_fx (shared by copy with belt-alchemy): every effect over a drum loop,
+# under ASan/UBSan; also renders a WAV to listen to.
+$(BUILD)/test_punch_fx: test_punch_fx.c ../src/punch_fx.c ../src/punch_fx.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -O1 -g -Wall -fsanitize=address,undefined -I../src test_punch_fx.c ../src/punch_fx.c -o $@ -lm
 
 $(BUILD)/test_alloc: test_alloc.c ../src/versio_alloc.c ../src/mark_core_alchemy.c
 	@mkdir -p $(BUILD)

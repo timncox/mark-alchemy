@@ -15,6 +15,8 @@
  *     hub runs its upstream at full speed and passes full-speed packets
  *     through unchanged: no split transactions. Low-speed devices (which
  *     would need PRE packets) are refused;
+ *   - besides MIDI, an XInput gamepad is taken (interrupt IN, polled every
+ *     bInterval ms); nothing is ever sent to it;
  *   - the hub stays at address 1 (the core enumerates it); devices behind
  *     it get addresses 2, 3, ... here. A device that is not MIDI (many
  *     dongles carry an Ethernet chip on a port, e.g. Realtek 0bda:8153) or
@@ -38,8 +40,15 @@ extern "C" {
 extern USBH_ClassTypeDef USBH_hub_midi;
 #define USBH_HUB_MIDI_CLASS (&USBH_hub_midi)
 
-/* Controllers served at once (e.g. a Launchpad Mini and a Launch Control). */
-#define HUBMIDI_MAX_DEVICES 2
+/* Controllers served at once (e.g. a Launchpad Mini, a Launch Control and
+ * a gamepad). */
+#define HUBMIDI_MAX_DEVICES 3
+
+/* What a slot carries. An XInput gamepad (vendor interface ff/5d/01, e.g.
+ * a GP2040-CE controller in XInput mode, 045E:028E) delivers its 20-byte
+ * input reports through the same receive callback. */
+#define HUBMIDI_KIND_MIDI   0
+#define HUBMIDI_KIND_XINPUT 1
 
 typedef void (*HUBMIDI_RxCallback)(uint8_t dev, uint8_t *buf, size_t len, void *user);
 
@@ -48,6 +57,7 @@ uint8_t HUBMIDI_Ready(USBH_HandleTypeDef *phost);
 /* Per device slot 0..HUBMIDI_MAX_DEVICES-1. */
 uint8_t HUBMIDI_DevReady(USBH_HandleTypeDef *phost, uint8_t dev);
 void    HUBMIDI_DevId(uint8_t dev, uint16_t *vid, uint16_t *pid);
+uint8_t HUBMIDI_DevKind(uint8_t dev);
 
 /* Non-blocking: USBH_BUSY while the previous transfer to that device is in
  * flight, USBH_OK when queued, USBH_FAIL when not ready. */
@@ -70,6 +80,12 @@ typedef struct
     uint16_t done;         /* ports carrying a configured device */
     uint16_t dev_vid[HUBMIDI_MAX_DEVICES], dev_pid[HUBMIDI_MAX_DEVICES];
     uint8_t  dev_port[HUBMIDI_MAX_DEVICES]; /* 0 = slot empty */
+    uint8_t  dev_kind[HUBMIDI_MAX_DEVICES];
+    /* receive side per slot: transfers armed, completed with data, NAKed
+     * (interrupt: nothing to say), failed (error / stall) */
+    uint32_t rx_arms[HUBMIDI_MAX_DEVICES], rx_done[HUBMIDI_MAX_DEVICES];
+    uint32_t rx_nak[HUBMIDI_MAX_DEVICES], rx_err[HUBMIDI_MAX_DEVICES];
+    uint32_t rx_stale[HUBMIDI_MAX_DEVICES]; /* XInput: re-armed while still pending */
 } HUBMIDI_Info;
 HUBMIDI_Info HUBMIDI_GetInfo(void);
 

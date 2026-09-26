@@ -36,6 +36,9 @@ bool                 g_direct_ready = false; /* MIDI class active, pipes open */
 bool                 g_failed       = false; /* abort, unsupported or error seen */
 int                  g_mini_link    = kNone;
 int                  g_xl_link      = kNone;
+volatile uint32_t    g_pad_buttons  = 0;
+uint32_t             g_pad_reports  = 0;
+uint8_t              g_pad_last[6];         /* the last report's head, any type */
 
 uint32_t g_rx_count = 0, g_tx_count = 0;
 
@@ -88,8 +91,26 @@ void xl_rx(uint8_t* buf, size_t len);
 void mini_bound();
 void xl_bound();
 
+/* XInput input report: type 0x00, length 0x14, wButtons, LT, RT, sticks. */
+void pad_rx(const uint8_t* buf, size_t len)
+{
+    for (size_t i = 0; i < 6 && i < len; i++) g_pad_last[i] = buf[i];
+    if (len < 6 || buf[0] != 0x00) return; /* 0x08 etc: status, not input */
+    uint32_t b = (uint32_t)buf[2] | ((uint32_t)buf[3] << 8);
+    if (buf[4] > 64) b |= 1u << 16;
+    if (buf[5] > 64) b |= 1u << 17;
+    g_pad_buttons = b;
+    g_pad_reports++;
+}
+
+bool is_pad(int link)
+{
+    return link != kDirect && HUBMIDI_DevKind((uint8_t)(link - kHub0)) == HUBMIDI_KIND_XINPUT;
+}
+
 void dispatch(int link, uint8_t* buf, size_t len)
 {
+    if (is_pad(link)) { pad_rx(buf, len); return; }
     g_rx_count++;
     if (link == g_mini_link) mini_rx(buf, len);
     else if (link == g_xl_link) xl_rx(buf, len);
@@ -115,6 +136,7 @@ void on_disconnect(void*)
     g_direct_ready = false;
     g_mini_link    = kNone;
     g_xl_link      = kNone;
+    g_pad_buttons  = 0;
 }
 
 /* Bind ready links to roles by id; drop roles whose link went away. */
@@ -124,7 +146,7 @@ void bind()
     if (g_xl_link != kNone && !link_ready(g_xl_link)) g_xl_link = kNone;
     for (int l = 0; l < kLinks; l++)
     {
-        if (l == g_mini_link || l == g_xl_link || !link_ready(l)) continue;
+        if (l == g_mini_link || l == g_xl_link || !link_ready(l) || is_pad(l)) continue;
         uint16_t vid = 0, pid = 0;
         link_id(l, &vid, &pid);
         if (vid != kNovation) continue;
@@ -314,6 +336,8 @@ bool Connected() { return g_mini_link != kNone; }
 uint8_t Stage()
 {
     if (g_mini_link != kNone || g_xl_link != kNone) return 3;
+    for (int l = kHub0; l < kLinks; l++)
+        if (link_ready(l) && is_pad(l)) return 3;
     if (hUsbHostHS.gState == HOST_ABORT_STATE) g_failed = true;
     if (via_hub())
         return HUBMIDI_GetInfo().fail_state && !HUBMIDI_Ready(&hUsbHostHS) ? 2 : 1;
@@ -367,8 +391,15 @@ int Report(char* b, int cap)
             (int)via_hub(), h.state, h.ports, h.port, h.port_status, h.fail_state, h.fail_code,
             h.skipped, h.done);
         for (int d = 0; d < HUBMIDI_MAX_DEVICES; d++)
-            OUT("  slot %d: port %u %04x:%04x\n", d, h.dev_port[d], h.dev_vid[d], h.dev_pid[d]);
+            OUT("  slot %d: port %u %04x:%04x kind %u rx armed %lu data %lu nak %lu err %lu stale %lu\n", d,
+                h.dev_port[d], h.dev_vid[d], h.dev_pid[d], h.dev_kind[d],
+                (unsigned long)h.rx_arms[d], (unsigned long)h.rx_done[d],
+                (unsigned long)h.rx_nak[d], (unsigned long)h.rx_err[d],
+                (unsigned long)h.rx_stale[d]);
     }
+    OUT("pad: reports %lu, held %05lx, last %02x %02x %02x %02x %02x %02x\n",
+        (unsigned long)g_pad_reports, (unsigned long)g_pad_buttons, g_pad_last[0], g_pad_last[1],
+        g_pad_last[2], g_pad_last[3], g_pad_last[4], g_pad_last[5]);
     OUT("direct device %04x:%04x\n", hUsbHostHS.device.DevDesc.idVendor,
         hUsbHostHS.device.DevDesc.idProduct);
     OUT("trace (ms gState enumState):\n");
@@ -611,3 +642,21 @@ void xl_rx(uint8_t* buf, size_t len)
 }
 
 } // namespace
+
+/* ================================================================== gamepad */
+
+namespace pad
+{
+
+bool Connected()
+{
+    for (int l = kHub0; l < kLinks; l++)
+        if (link_ready(l) && is_pad(l)) return true;
+    return false;
+}
+
+uint32_t Buttons() { return Connected() ? g_pad_buttons : 0u; }
+
+uint32_t ReportCount() { return g_pad_reports; }
+
+} // namespace pad

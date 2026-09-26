@@ -50,7 +50,8 @@ C_SOURCES = \
     src/mark_core_alchemy.c \
     src/usbh_hub_midi.c \
     src/usb_audio.c \
-    src/usbd_ctlreq_uac.c
+    src/usbd_ctlreq_uac.c \
+    src/punch_fx.c
 
 # ── Alchemy SDK, compiled straight from the submodule ───────────────────────
 CPP_SOURCES += $(sort $(shell find $(ALCHEMY_DIR)/framework/src -name '*.cpp'))

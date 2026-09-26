@@ -58,6 +58,7 @@
 #include "launchpad.h"
 #include "usb_shared.h"
 #include "usb_audio.h"
+#include "punch_fx.h"
 #include "ff.h"
 #include "versio_alloc.h"
 
@@ -819,9 +820,57 @@ static void track_key(int ti, const char* what)
     mark_set_param(M, key, "1");
 }
 
+/* ---- Gamepad punch effects (Haute42 in XInput mode, through the hub) --------
+ *
+ * The output runs through punch_fx.h in Launchpad mode; every gamepad button
+ * holds an effect (the last pressed wins, release goes back to dry):
+ *
+ *   top row     X Stutter 1/4   Y Stutter 1/8   RB Stutter 1/16   LB Buzz
+ *   bottom row  A Reverse       B Tape Stop     RT Half Speed     LT Echo
+ *   directions  Left Low-pass   Down High-pass  Right Crush       Up Gate
+ *   L3 Stutter 1/2    R3 Drive
+ * * Tempo-synced to the tempo knob, or the J3 clock when one is patched.
+ */
+#define PFX_RING_FRAMES 96000u   /* 2 s: two beats at 60 BPM */
+#define PFX_ECHO_FRAMES 48000u   /* 1 s: a dotted 1/8 at 45 BPM */
+static float DSY_SDRAM_BSS g_pfx_ring[2 * PFX_RING_FRAMES];
+static float DSY_SDRAM_BSS g_pfx_echo[2 * PFX_ECHO_FRAMES];
+static pfx_t g_pfx;
+
+/* index = pad:: bit (XInput wButtons, then LT/RT) */
+static const int8_t kPadPfx[18] = {
+    PFX_GATE, PFX_HIGH_PASS, PFX_LOW_PASS, PFX_CRUSH,      /* Up Down Left Right */
+    -1, -1, PFX_STUTTER_2, PFX_DRIVE,                      /* Start Back L3 R3   */
+    PFX_BUZZ, PFX_STUTTER_16, -1, -1,                      /* LB RB Guide -      */
+    PFX_REVERSE, PFX_TAPE_STOP, PFX_STUTTER_4, PFX_STUTTER_8, /* A B X Y         */
+    PFX_ECHO, PFX_HALF_SPEED,                              /* LT RT              */
+};
+static uint32_t g_pad_prev = 0;
+static int      g_pad_fx   = -1;
+
+static void pad_poll(void)
+{
+    const uint32_t b = pad::Buttons();
+    const uint32_t pressed = b & ~g_pad_prev, released = g_pad_prev & ~b;
+    g_pad_prev = b;
+    for (int i = 0; i < 18; i++)
+        if ((pressed >> i & 1u) && kPadPfx[i] >= 0) g_pad_fx = kPadPfx[i];
+    for (int i = 0; i < 18; i++)
+    {
+        if (!(released >> i & 1u) || kPadPfx[i] != g_pad_fx) continue;
+        g_pad_fx = -1;
+        for (int j = 0; j < 18; j++)
+            if ((b >> j & 1u) && kPadPfx[j] >= 0) g_pad_fx = kPadPfx[j];
+    }
+    const float bpm = clk_bpm(&CLK);
+    if (bpm > 1.0f) pfx_set_beat(&g_pfx, 48000.0f * 60.0f / bpm);
+    pfx_hold(&g_pfx, settings.IsActive() ? -1 : g_pad_fx);
+}
+
 static void lp_poll(uint32_t now)
 {
     lp::Poll(now);
+    pad_poll();
     lp::Event e;
     const bool live = !settings.IsActive();
     while (lp::PopEvent(&e))
@@ -1423,6 +1472,7 @@ static void OnRender(uint32_t t_ms)
             {0x00, 0xFF, 0x00}};  /* 5 MIDI device active        */
         ck = kStage[g_lp_stage < 6 ? g_lp_stage : 0];
     }
+    if (g_lp_mode && pad::Buttons()) ck = {0xFF, 0xFF, 0xFF}; /* a gamepad button held */
     if (g_usb_audio)
     {
         static const LedPanel::Rgb kUac[4] = {
@@ -1524,6 +1574,9 @@ static void AudioCallback(daisy::AudioHandle::InputBuffer  in,
         out[0][i] = (float)bufi[2 * i] * k;
         out[1][i] = (float)bufi[2 * i + 1] * k;
     }
+
+    /* The gamepad's punch effects, last on the output. */
+    if (g_lp_mode) pfx_process(&g_pfx, out[0], out[1], (uint32_t)size);
 
     cpu.OnBlockEnd();
 }
@@ -1704,6 +1757,7 @@ int main(void)
     g_lp_boot_ms = System::GetNow();
     if (g_usb_audio) UAC_Start("Alchemy Lab");
 
+    pfx_init(&g_pfx, g_pfx_ring, PFX_RING_FRAMES, g_pfx_echo, PFX_ECHO_FRAMES, 48000.0f);
     hw.StartAudio(AudioCallback);
     cpu.Reset();
 
