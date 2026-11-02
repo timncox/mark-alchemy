@@ -30,8 +30,11 @@
 /* The TRACK page's parameters, in pot order (P1..P5; P6 is TRACK select). */
 enum : uint8_t
 {
-    kTpShot = 0,   /* 0 loop, 1 one-shot                                  */
-    kTpRev,        /* 0 forward, 1 reverse                                */
+    kTpSpeed = 0,  /* 0..240 in 20-cent steps, 120 = 1x: the engine's
+                      t<n>_speed is (v - 120) * 20 cents, -2400..+2400.
+                      The octave grid only ever sends 0/60/120/180/240.   */
+    kTpDir,        /* 0 loop, 1 one-shot, 2 reverse, 3 reverse one-shot:
+                      bit 0 = the engine's shot, bit 1 = its rev         */
     kTpFx,         /* 0 off, 1..6 = the engine's tfx_t code, switched on  */
     kTpFxAmt,      /* 0..100, the engine's fxp                            */
     kTpPan,        /* 0..100, 50 = centre                                 */
@@ -39,9 +42,10 @@ enum : uint8_t
 };
 
 static constexpr uint8_t kExtrasTracks = 5u;   /* == MARK_TRACKS, asserted in mark_alchemy.cpp */
+static constexpr uint8_t kSpeedUnity   = 120u; /* kTpSpeed value for 1x */
 
-static constexpr uint8_t kTrackParamMax[kNumTrackParams]     = {1u, 1u, 6u, 100u, 100u};
-static constexpr uint8_t kTrackParamDefault[kNumTrackParams] = {0u, 0u, 0u, 50u, 50u};
+static constexpr uint8_t kTrackParamMax[kNumTrackParams]     = {240u, 3u, 6u, 100u, 100u};
+static constexpr uint8_t kTrackParamDefault[kNumTrackParams] = {kSpeedUnity, 0u, 0u, 50u, 50u};
 
 struct MarkExtras : public alchemy::Serializable
 {
@@ -94,6 +98,8 @@ struct MarkExtras : public alchemy::Serializable
     }
 
     /* 'MRK' + layout version. Bump the low byte when the layout changes.
-     * 0x02: the TRACK page's per-track values. */
-    uint32_t SchemaHash() const override { return 0x4D524B00u | 0x02u; }
+     * 0x02: the TRACK page's per-track values.
+     * 0x03: same size, new meaning -- SPEED and DIRECTION replaced
+     *       ONE-SHOT and REVERSE, so a 0x02 blob must not be read as one. */
+    uint32_t SchemaHash() const override { return 0x4D524B00u | 0x03u; }
 };

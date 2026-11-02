@@ -16,8 +16,10 @@
  */
 /*
  * VENDORED COPY for mark-alchemy -- from github.com/timncox/schwung-mark
- * (tim-os/mark) main @ 30090bd, module version 0.5.0. Two edits, both here
- * in the header, none in mark_core.c:
+ * (tim-os/mark). mark_core.c is branch worktree-speed-tempo-follow @ 71c8042
+ * (draft PR #13: per-track speed + tempo_follow, on top of main b82c463,
+ * which is unchanged from 30090bd for the engine); re-vendor from main once
+ * that merges. Two edits, both here in the header, none in mark_core.c:
  *   1. MARK_SR 44100 -> 48000. libDaisy offers no 44.1 kHz (sai.h); every
  *      sample-rate-derived constant in the engine (tempo, delay, LFOs, WAV
  *      headers) follows this define.

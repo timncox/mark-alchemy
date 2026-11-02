@@ -13,14 +13,15 @@
  * file, the picker, the allocator, the autosave. See DESIGN.md.
  *
  *   PLAY   LEVEL 1-5 (each ring is that track's RC-505 display) · TRACK select
- *   TRACK  the selected track's ONE-SHOT · REVERSE · FX · FX AMOUNT · PAN,
+ *   TRACK  the selected track's SPEED · DIRECTION · FX · FX AMOUNT · PAN,
  *          and TRACK select again on the same pot                  (tap B3)
  *   SETUP  QUANTIZE · REC-> · DUB · PLAY MODE · TEMPO · MASTER   (hold B3)
  *   B1     the selected track's REC/PLAY button: tap = record -> play ->
  *          overdub, hold = undo/redo, hold 2 s = clear
  *   B2     tap = stop the track, hold = ALL start/stop
  *   J3     clock; J4 record trigger; J5 stop trigger; J6-J8 CV
- *   Settings (B2+B3 2 s): dry input, clock ratio; page 1 = the SD picker
+ *   Settings (B2+B3 2 s): dry input, clock ratio; page 1 = the SD picker;
+ *            page 2 = tempo follow, speed grid
  *
  * The Move's sessions are not on this panel; the engine still has them.
  */
@@ -90,7 +91,7 @@ static constexpr uint8_t kRecJack   = 1u;
 static constexpr uint8_t kStopJack  = 2u;
 
 enum : uint8_t { kPagePlay = 0, kPageSetup = 1, kPageTrack = 2, kNumAppPages = 3 };
-enum : uint8_t { kSettingsMain = 0, kSettingsFirmware = 1 };
+enum : uint8_t { kSettingsMain = 0, kSettingsFirmware = 1, kSettingsSpeed = 2 };
 
 /* ---- hardware + engine -------------------------------------------------- */
 
@@ -161,8 +162,10 @@ static const char* const kPlayLabels[2]   = {"Multi", "Single"};
 static const char* const kDryLabels[2]    = {"Through", "Muted"};
 static const char* const kRatioLabels[3]  = {"/2", "=1", "x2"};
 static const char* const kUsbLabels[3]    = {"Mac", "Launchpad", "Audio"};
-static const char* const kShotLabels[2]   = {"Loop", "One-shot"};
-static const char* const kRevLabels[2]    = {"Forward", "Reverse"};
+static const char* const kDirLabels[4]    = {"Loop", "One-shot", "Reverse",
+                                             "Reverse one-shot"};
+static const char* const kFollowLabels[2] = {"Off", "On"};
+static const char* const kGridLabels[3]   = {"Octaves", "Semitones", "Free"};
 static const char* const kFxLabels[7]     = {"Off", "Low-pass", "High-pass", "Crush",
                                              "Delay", "Phaser", "Ring mod"};
 
@@ -324,13 +327,17 @@ static VirtualKnob master = VirtualKnob(kPotBottomRight, "Master")
  * again, on the pot it has on the PLAY page, so picking a track never costs
  * a page change; the two stored values are kept equal in OnFrame. */
 
-static VirtualKnob trk_shot = VirtualKnob(kPotTopLeft, "One-shot")
-    .Selector(2).Labels(kShotLabels).Ident("trk_shot")
-    .Ring(SelectorRing(kColShot, kColDim, 2));
+/* SPEED: tape-style, pitch moves with it. -2..+2 octaves, 1x at the
+ * centre; Settings > Speed > Speed Grid decides whether the pot steps by
+ * octave (every loop stays a whole number of bars against the others),
+ * semitone, or not at all. */
+static VirtualKnob trk_speed = VirtualKnob(kPotTopLeft, "Speed")
+    .Linear(-2.f, 2.f).Ident("trk_speed").Unit("oct")
+    .Ring(Bipolar(kColShot, kColRev, kWhite));
 
-static VirtualKnob trk_rev = VirtualKnob(kPotTopRight, "Reverse")
-    .Selector(2).Labels(kRevLabels).Ident("trk_rev")
-    .Ring(SelectorRing(kColRev, kColDim, 2));
+static VirtualKnob trk_dir = VirtualKnob(kPotTopRight, "Direction")
+    .Selector(4).Labels(kDirLabels).Ident("trk_dir")
+    .Ring(SelectorRing(kColRev, kColDim, 4));
 
 static VirtualKnob trk_fx = VirtualKnob(kPotMiddleLeft, "FX")
     .Selector(7).Labels(kFxLabels).Ident("trk_fx")
@@ -355,7 +362,7 @@ static Page setup_page = Page(kPageSetup).Name("Setup").Color("#c060ff")
     .Knobs(quant, recact, dubmode, playmode, tempo, master);
 
 static Page track_page = Page(kPageTrack).Name("Track").Color("#ff9030")
-    .Knobs(trk_shot, trk_rev, trk_fx, trk_fxamt, trk_pan, trk_sel);
+    .Knobs(trk_speed, trk_dir, trk_fx, trk_fxamt, trk_pan, trk_sel);
 
 /* ---- descriptor metadata -------------------------------------------------- */
 
@@ -395,8 +402,10 @@ static Manual manual = Manual()
         "was; with a clock on J3 every loop snaps to it. Hold B3 for the "
         "Setup page: quantize grid, what recording ends in, overdub or "
         "replace, single-track sections, tempo and master level. Tap B3 for "
-        "the Track page, which belongs to the selected track: one-shot, "
-        "reverse, an insert effect and its amount, and pan. B1 and B2 still "
+        "the Track page, which belongs to the selected track: speed (1/4 to "
+        "4 times, tape-style), direction (loop, one-shot, reverse), an insert "
+        "effect and its amount, and pan. In Settings, Tempo Follow makes the "
+        "loops keep time when TEMPO or the clock changes. B1 and B2 still "
         "record and stop there, and the TRACK pot is in the same place, so "
         "you can walk through all five tracks without leaving it.");
 
@@ -573,8 +582,8 @@ static void track_gesture(const char* what)
 static_assert(kExtrasTracks == MARK_TRACKS, "extras.h carries one row per engine track");
 
 static Knob k_tp[kNumTrackParams] = {
-    {nullptr, 0,   1, true,  HYST},   /* one-shot  */
-    {nullptr, 0,   1, true,  HYST},   /* reverse   */
+    {nullptr, 0, 240, false, 0.0f},   /* speed: snapped by speed_from_norm */
+    {nullptr, 0,   3, true,  HYST},   /* direction */
     {nullptr, 0,   6, true,  HYST},   /* fx        */
     {nullptr, 0, 100, false, 0.0f},   /* fx amount */
     {nullptr, 0, 100, false, 0.0f},   /* pan       */
@@ -585,8 +594,32 @@ static const uint8_t kTrackPot[kNumTrackParams] = {
 };
 
 static VirtualKnob* const kTrackKnob[kNumTrackParams] = {
-    &trk_shot, &trk_rev, &trk_fx, &trk_fxamt, &trk_pan,
+    &trk_speed, &trk_dir, &trk_fx, &trk_fxamt, &trk_pan,
 };
+
+/* Settings > Speed > Speed Grid: what the SPEED pot may send. */
+enum : uint8_t { kGridOctaves = 0, kGridSemitones = 1, kGridFree = 2 };
+static SelectorHandle tempo_follow, speed_grid;
+
+/* SPEED pot position -> kTpSpeed value (20-cent steps, 120 = 1x). Octaves:
+ * five equal zones, 1/4 1/2 1 2 4 -- the same zones as the pot's catch,
+ * so it reads back where it was left. Semitones / Free: a centre detent
+ * for 1x, then 100- or 20-cent steps. */
+static int speed_from_norm(float n, int grid)
+{
+    if (n < 0.0f) n = 0.0f;
+    if (n > 1.0f) n = 1.0f;
+    if (grid == kGridOctaves)
+    {
+        int z = (int)(n * 5.0f);
+        if (z > 4) z = 4;
+        return z * 60;
+    }
+    if (fabsf(n - 0.5f) < 0.03f) return kSpeedUnity;
+    const int v = (int)lroundf(n * 240.0f);
+    if (grid == kGridSemitones) return (v + 2) / 5 * 5;
+    return v;
+}
 
 static uint8_t  g_applied[MARK_TRACKS][kNumTrackParams];
 static uint32_t g_seen_loads = 0;
@@ -602,10 +635,15 @@ static void apply_track_param(int ti, uint8_t which, int v)
 {
     switch (which)
     {
-        case kTpShot:  track_param_int(ti, "shot", v); break;
-        /* The engine ends an overdub when a track is reversed (the RC's
-         * rule: no dub while reversed). */
-        case kTpRev:   track_param_int(ti, "rev", v);  break;
+        /* The engine ends an overdub when a track leaves 1x, and refuses
+         * one until it is back (dub writes land at whole frames). */
+        case kTpSpeed: track_param_int(ti, "speed", (v - (int)kSpeedUnity) * 20); break;
+        /* One knob for two engine parameters. The engine ends an overdub
+         * when a track is reversed (the RC's rule: no dub while reversed). */
+        case kTpDir:
+            track_param_int(ti, "shot", v & 1);
+            track_param_int(ti, "rev", (v >> 1) & 1);
+            break;
         /* One knob for two engine parameters: zone 0 switches the insert
          * off and leaves its type alone, zones 1..6 are the tfx_t codes. */
         case kTpFx:
@@ -674,7 +712,22 @@ static bool dispatch_track_page(void)
         if (w == kTpPan && fabsf(n - 0.5f) < 0.03f) n = 0.5f;
 
         int v;
-        if (!knob_changed(k_tp[w], n, &v)) continue;
+        if (w == kTpSpeed)
+        {
+            /* Snapped by the grid, not by knob_changed's even steps. Free
+             * mode gets a small deadband so ADC noise can't warble pitch. */
+            const int grid = (int)speed_grid.Value();
+            v = speed_from_norm(n, grid);
+            Knob& k = k_tp[w];
+            if (v == k.last) continue;
+            if (grid == kGridFree && k.last != -32768 &&
+                fabsf(n - k.last_norm) < 0.006f)
+                continue;
+            k.last      = v;
+            k.last_norm = n;
+        }
+        else if (!knob_changed(k_tp[w], n, &v))
+            continue;
         extras.trk[g_track][w] = (uint8_t)v;
         g_applied[g_track][w]  = (uint8_t)v;
         apply_track_param(g_track, w, v);
@@ -1194,6 +1247,7 @@ static float    g_saved_peak  = 0.0f;
 static bool     prev_settings = false;
 static int      applied_dry   = -1;
 static int      applied_ratio = -1;
+static int      applied_follow = -1;
 static float    applied_bpm   = 0.0f;
 
 static void mark_dirty(uint32_t now)
@@ -1320,7 +1374,7 @@ static void OnFrame(void)
         }
     }
 
-    /* Settings: dry input through or muted; clock ratio. */
+    /* Settings: dry input through or muted; clock ratio; tempo follow. */
     {
         const int d = (int)dry_input.Value();
         if (d != applied_dry)
@@ -1334,6 +1388,12 @@ static void OnFrame(void)
             static const int ticks[3] = {CLK_TICKS_DIV2, CLK_TICKS_1X, CLK_TICKS_2X};
             applied_ratio = r;
             clk_set_ratio(&CLK, ticks[r < 0 ? 1 : (r > 2 ? 2 : r)]);
+        }
+        const int f = (int)tempo_follow.Value();
+        if (f != applied_follow)
+        {
+            applied_follow = f;
+            set_param_int("tempo_follow", f ? 1 : 0);
         }
     }
 
@@ -1668,6 +1728,31 @@ int main(void)
         .Ident("clk.ratio").Name("Clock Ratio")
         .Help("What one pulse on J3 is worth: a half note, a quarter note, "
               "or an eighth.");
+
+    settings.Page(kSettingsSpeed)
+        .Name("Speed")
+        .Help("How loops respond to tempo, and how the Track page's SPEED pot "
+              "moves.");
+    tempo_follow = settings.Page(kSettingsSpeed).Pot(0)
+        .Selector(kFollowLabels).Default(0)
+        .Ident("tempo_follow").Name("Tempo Follow")
+        .Help("**On**: every loop plays at the tempo it was recorded at, "
+              "scaled to the tempo now -- turn TEMPO, or change the clock on "
+              "J3, and the loops keep time, tape-style (pitch moves with "
+              "them). With a clock on J3 they also lock to its downbeat. "
+              "Changes under about 0.3 % are ignored. A loop that is playing "
+              "off its own tempo cannot be overdubbed until it is back. Turn "
+              "this on before recording to a clock, so each loop is cut to "
+              "an exact bar. **Off**: loops play at the speed they were "
+              "recorded, whatever the tempo does.");
+    speed_grid = settings.Page(kSettingsSpeed).Pot(1)
+        .Selector(kGridLabels).Default(0)
+        .Ident("speed_grid").Name("Speed Grid")
+        .Help("What the SPEED pot on the Track page steps by. **Octaves**: "
+              "1/4, 1/2, 1, 2 or 4 times, so a loop stays a whole number of "
+              "bars against the others. **Semitones** and **Free**: anything "
+              "from 1/4 to 4 times, with a catch at the centre for 1x. A "
+              "track keeps the speed it was given when this changes.");
 
     /* CV: J3-J5 are gates (read raw in the callback), the rest modulate. */
     cv_matrix.Jack(0).Off();

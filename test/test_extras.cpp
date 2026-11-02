@@ -35,8 +35,8 @@ int main()
         CHECK(e.SerializedSize() == 4u + kExtrasTracks * kNumTrackParams);
         for (uint8_t t = 0; t < kExtrasTracks; t++)
         {
-            CHECK(e.trk[t][kTpShot] == 0);
-            CHECK(e.trk[t][kTpRev] == 0);
+            CHECK(e.trk[t][kTpSpeed] == kSpeedUnity);   /* 1x */
+            CHECK(e.trk[t][kTpDir] == 0);                /* loop, forward */
             CHECK(e.trk[t][kTpFx] == 0);
             CHECK(e.trk[t][kTpFxAmt] == 50);   /* the engine's own default fxp */
             CHECK(e.trk[t][kTpPan] == 50);     /* centre */
@@ -109,6 +109,30 @@ int main()
         MarkExtras e;
         CHECK((e.SchemaHash() & 0xFFFFFF00u) == 0x4D524B00u);
         CHECK((e.SchemaHash() & 0xFFu) != 0x01u);
+        /* 0x02 stored ONE-SHOT/REVERSE where SPEED/DIRECTION now live: a
+         * 0x02 one-shot (1) would read back as a speed of -4 octaves */
+        CHECK((e.SchemaHash() & 0xFFu) != 0x02u);
+    }
+
+    /* speed and direction ranges: past the end, the track resets whole */
+    {
+        MarkExtras a;
+        uint8_t blob[64];
+        a.trk[0][kTpSpeed] = 240;   /* 4x: the top, valid */
+        a.trk[1][kTpDir]   = 3;     /* reverse one-shot, valid */
+        a.trk[1][kTpPan]   = 20;
+        a.Serialize(blob);
+        blob[4u + 2u * kNumTrackParams + kTpSpeed] = 241;
+        blob[4u + 2u * kNumTrackParams + kTpPan]   = 33;
+        blob[4u + 3u * kNumTrackParams + kTpDir]   = 4;
+        MarkExtras b;
+        CHECK(b.Deserialize(blob));
+        CHECK(b.trk[0][kTpSpeed] == 240);
+        CHECK(b.trk[1][kTpDir] == 3);
+        CHECK(b.trk[1][kTpPan] == 20);
+        CHECK(b.trk[2][kTpSpeed] == kSpeedUnity);
+        CHECK(b.trk[2][kTpPan] == kTrackParamDefault[kTpPan]);
+        CHECK(b.trk[3][kTpDir] == 0);
     }
 
     if (g_fail) { std::printf("test_extras: %d FAILED\n", g_fail); return 1; }
